@@ -387,7 +387,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
 
         // Parse SpO2 from PULSE_OXIMETER service (0x1822) - using NordicDataParser
         else if (uuidMatches(service, STANDARD_SERVICES.PULSE_OXIMETER) &&
-                 uuidMatches(characteristic, STANDARD_CHARACTERISTICS.PLX_SPOT_CHECK_MEASUREMENT)) {
+                 uuidMatches(characteristic, STANDARD_CHARACTERISTICS.PLX_CONTINUOUS_MEASUREMENT)) {
           const buffer = new Uint8Array(value);
           spO2Update = NordicDataParser.parseSpO2Data(buffer, state.connectedDevice.id);
         }
@@ -561,9 +561,6 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
 
               const newHeartRate = heartRateUpdate || prev.heartRate;
               const newSpO2 = spO2Update || prev.spO2;
-              const heartRateQuality = newHeartRate?.signalQuality || 0;
-              const spO2Quality = newSpO2?.signalQuality || 0;
-              const qualityScore = Math.round((heartRateQuality + spO2Quality) / 2);
 
               const newAccelerometer = accelerometerUpdate
                 ? accelerometerUpdate
@@ -577,7 +574,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
                 lastUpdate: new Date(),
                 dataRate,
                 totalReadings: prev.totalReadings + 1,
-                qualityScore,
+                qualityScore: 0,  // Signal quality removed
               };
             });
           }
@@ -891,8 +888,8 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
       const characteristics = (peripheralInfo as any).characteristics || [];
 
       const spO2Char = characteristics.find((char: any) =>
-        char.characteristic.toUpperCase().includes('2A5E') ||
-        char.characteristic.toLowerCase() === '2a5e'
+        char.characteristic.toUpperCase().includes('2A5F') ||
+        char.characteristic.toLowerCase() === '2a5f'
       );
 
       if (!spO2Char) {

@@ -35,13 +35,11 @@ export interface EnhancedSensorReading {
   heartRate?: {
     value: number;
     contactDetected: boolean;
-    signalQuality: number;
     rrIntervals?: number[];
   };
   spO2?: {
     value: number;
     pulseRate: number;
-    signalQuality: number;
   };
   battery?: {
     level: number;
@@ -123,7 +121,7 @@ export class DataManager {
   }
 
   // Database version for migrations
-  private static readonly DB_VERSION = 3; // Incremented for raw accelerometer values
+  private static readonly DB_VERSION = 4; // Removed signal quality columns
 
   // Create database tables (SQLite only)
   private static async createTables(): Promise<void> {
@@ -137,11 +135,9 @@ export class DataManager {
         timestamp INTEGER NOT NULL,
         heart_rate INTEGER,
         hr_contact_detected INTEGER,
-        hr_signal_quality INTEGER,
         hr_rr_intervals TEXT,
         spo2_value INTEGER,
         spo2_pulse_rate INTEGER,
-        spo2_signal_quality INTEGER,
         battery_level INTEGER,
         accel_raw_x INTEGER,
         accel_raw_y INTEGER,
@@ -214,6 +210,10 @@ export class DataManager {
         await this.migrateToV3();
         currentVersion = 3;
       }
+      if (currentVersion < 4) {
+        await this.migrateToV4();
+        currentVersion = 4;
+      }
 
       if (currentVersion < this.DB_VERSION) {
         await this.db.executeSql('UPDATE db_version SET version = ?', [this.DB_VERSION]);
@@ -267,6 +267,68 @@ export class DataManager {
       }
     } catch (error) {
       console.error('Failed to migrate to v3:', error);
+      throw error;
+    }
+  }
+
+  private static async migrateToV4(): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      console.log('🔄 [Migration] Starting v4 migration - removing signal quality columns');
+      console.log('⚠️  [Migration] This will delete all existing sensor data');
+      
+      // Drop old tables
+      await this.db.executeSql('DROP TABLE IF EXISTS sensor_readings');
+      await this.db.executeSql('DROP TABLE IF EXISTS monitoring_sessions');
+      
+      console.log('✅ [Migration] Old tables dropped');
+      
+      // Recreate tables with new schema (without signal quality)
+      const createSensorReadingsTable = `
+        CREATE TABLE sensor_readings (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          heart_rate INTEGER,
+          hr_contact_detected INTEGER,
+          hr_rr_intervals TEXT,
+          spo2_value INTEGER,
+          spo2_pulse_rate INTEGER,
+          battery_level INTEGER,
+          accel_raw_x INTEGER,
+          accel_raw_y INTEGER,
+          accel_raw_z INTEGER,
+          accel_x REAL,
+          accel_y REAL,
+          accel_z REAL,
+          accel_magnitude REAL,
+          raw_data TEXT,
+          created_at INTEGER DEFAULT (strftime('%s', 'now'))
+        )
+      `;
+
+      const createSessionsTable = `
+        CREATE TABLE monitoring_sessions (
+          id TEXT PRIMARY KEY,
+          start_time INTEGER NOT NULL,
+          end_time INTEGER,
+          device_name TEXT,
+          notes TEXT,
+          data_count INTEGER DEFAULT 0,
+          is_active INTEGER DEFAULT 1,
+          created_at INTEGER DEFAULT (strftime('%s', 'now'))
+        )
+      `;
+
+      await this.db.executeSql(createSensorReadingsTable);
+      await this.db.executeSql(createSessionsTable);
+      
+      console.log('✅ [Migration] New tables created without signal quality columns');
+      console.log('✅ [Migration] v4 migration complete');
+    } catch (error) {
+      console.error('❌ [Migration] Failed to migrate to v4:', error);
       throw error;
     }
   }
@@ -630,13 +692,11 @@ export class DataManager {
       heartRate: heartRateData ? {
         value: heartRateData.heartRate,
         contactDetected: heartRateData.contactDetected,
-        signalQuality: heartRateData.signalQuality,
         rrIntervals: heartRateData.rrIntervals,
       } : undefined,
       spO2: spO2Data ? {
         value: spO2Data.spO2,
         pulseRate: spO2Data.pulseRate,
-        signalQuality: spO2Data.signalQuality,
       } : undefined,
       battery: batteryData ? {
         level: batteryData.level,
@@ -667,10 +727,10 @@ export class DataManager {
       const sql = `
         INSERT INTO sensor_readings
         (id, session_id, device_id, timestamp, heart_rate, hr_contact_detected,
-         hr_signal_quality, hr_rr_intervals, spo2_value, spo2_pulse_rate,
-         spo2_signal_quality, battery_level, accel_raw_x, accel_raw_y, accel_raw_z,
+         hr_rr_intervals, spo2_value, spo2_pulse_rate,
+         battery_level, accel_raw_x, accel_raw_y, accel_raw_z,
          accel_x, accel_y, accel_z, accel_magnitude, raw_data)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       try {
@@ -682,11 +742,9 @@ export class DataManager {
             reading.timestamp.getTime(),
             reading.heartRate?.value ?? null,
             reading.heartRate?.contactDetected ? 1 : (reading.heartRate ? 0 : null),
-            reading.heartRate?.signalQuality ?? null,
             reading.heartRate?.rrIntervals ? JSON.stringify(reading.heartRate.rrIntervals) : null,
             reading.spO2?.value ?? null,
             reading.spO2?.pulseRate ?? null,
-            reading.spO2?.signalQuality ?? null,
             reading.battery?.level ?? null,
             reading.accelerometer?.raw_x ?? null,
             reading.accelerometer?.raw_y ?? null,
@@ -776,7 +834,6 @@ export class DataManager {
         contactDetected: true,
         timestamp: new Date(),
         deviceId: 'legacy_device',
-        signalQuality: 75,
       };
 
       await this.saveNordicReading(sessionId, heartRateData);
@@ -875,13 +932,11 @@ export class DataManager {
       heartRate: row.heart_rate !== null && row.heart_rate !== undefined ? {
         value: row.heart_rate,
         contactDetected: Boolean(row.hr_contact_detected),
-        signalQuality: row.hr_signal_quality || 0,
         rrIntervals: row.hr_rr_intervals ? JSON.parse(row.hr_rr_intervals) : undefined,
       } : undefined,
       spO2: row.spo2_value !== null && row.spo2_value !== undefined ? {
         value: row.spo2_value,
         pulseRate: row.spo2_pulse_rate || 0,
-        signalQuality: row.spo2_signal_quality || 0,
       } : undefined,
       battery: row.battery_level !== null && row.battery_level !== undefined ? {
         level: row.battery_level,
@@ -901,10 +956,11 @@ export class DataManager {
 
   // Data analysis methods (enhanced)
   static calculateAverage(readings: HeartRateReading[]): number | null {
-    if (readings.length === 0) return null;
+    const validReadings = readings.filter(reading => reading.heartRate > 0);
+    if (validReadings.length === 0) return null;
     
-    const sum = readings.reduce((acc, reading) => acc + reading.heartRate, 0);
-    return Math.round(sum / readings.length);
+    const sum = validReadings.reduce((acc, reading) => acc + reading.heartRate, 0);
+    return Math.round(sum / validReadings.length);
   }
 
   static getReadingsInTimeRange(
@@ -1075,13 +1131,11 @@ export class DataManager {
             heartRate: r.heartRate ? {
               bpm: r.heartRate.value,
               contactDetected: r.heartRate.contactDetected,
-              signalQuality: r.heartRate.signalQuality,
               rrIntervals: r.heartRate.rrIntervals,
             } : null,
             spO2: r.spO2 ? {
               percentage: r.spO2.value,
               pulseRate: r.spO2.pulseRate,
-              signalQuality: r.spO2.signalQuality,
             } : null,
             battery: r.battery ? {
               level: r.battery.level,
@@ -1118,8 +1172,8 @@ export class DataManager {
     try {
       const sessions = await this.getAllSessions();
 
-      // Enhanced CSV header - exact format requested by user
-      let csv = 'Session_End,Session_Duration_Minutes,Timestamp_Unix_ms,Timestamp_ISO,Time_Since_Session_Start_Seconds,HR_BPM,HR_Contact_Detected,HR_Signal_Quality,HR_RR_Interval_ms,SpO2_Percent,SpO2_Pulse_Rate_BPM,SpO2_Signal_Quality,Battery_Percent,Accel_X_g,Accel_Y_g,Accel_Z_g,Accel_Magnitude_g,Device_ID\n';
+      // Enhanced CSV header
+      let csv = 'Session_End,Session_Duration_Minutes,Timestamp_Unix_ms,Timestamp_ISO,Time_Since_Session_Start_Seconds,HR_BPM,HR_Contact_Detected,HR_RR_Interval_ms,SpO2_Percent,SpO2_Pulse_Rate_BPM,Battery_Percent,Accel_X_g,Accel_Y_g,Accel_Z_g,Accel_Magnitude_g,Device_ID\n';
 
       // Process each session
       for (const session of sessions) {
@@ -1149,13 +1203,11 @@ export class DataManager {
             // Heart Rate Data
             reading.heartRate?.value ?? '',
             reading.heartRate?.contactDetected ? 'YES' : (reading.heartRate ? 'NO' : ''),
-            reading.heartRate?.signalQuality ?? '',
             reading.heartRate?.rrIntervals?.[0] ?? '',
 
             // SpO2 Data
             reading.spO2?.value ?? '',
             reading.spO2?.pulseRate ?? '',
-            reading.spO2?.signalQuality ?? '',
 
             // Battery Data
             reading.battery?.level ?? '',
@@ -1196,10 +1248,10 @@ export class DataManager {
       csv += 'Timestamp_Unix_ms,Timestamp_ISO,Time_Since_Start_Seconds,Time_Since_Start_Minutes,';
 
       // Section 2: Heart Rate Data
-      csv += 'HR_BPM,HR_Contact_Detected,HR_Signal_Quality,HR_RR_Interval_ms,';
+      csv += 'HR_BPM,HR_Contact_Detected,HR_RR_Interval_ms,';
 
       // Section 3: SpO2 Data
-      csv += 'SpO2_Percent,SpO2_Pulse_Rate_BPM,SpO2_Signal_Quality,';
+      csv += 'SpO2_Percent,SpO2_Pulse_Rate_BPM,';
 
       // Section 4: Battery Data
       csv += 'Battery_Percent,';
@@ -1227,13 +1279,11 @@ export class DataManager {
           // Heart Rate Data
           reading.heartRate?.value ?? '',
           reading.heartRate?.contactDetected ? 'YES' : (reading.heartRate ? 'NO' : ''),
-          reading.heartRate?.signalQuality ?? '',
           reading.heartRate?.rrIntervals?.[0] ?? '',
 
           // SpO2 Data
           reading.spO2?.value ?? '',
           reading.spO2?.pulseRate ?? '',
-          reading.spO2?.signalQuality ?? '',
 
           // Battery Data
           reading.battery?.level ?? '',

@@ -76,9 +76,17 @@ const calculateStats = (readings: HeartRateReading[]): HeartRateStats => {
 
   const values = readings.map(r => r.value);
   const current = readings[readings.length - 1]?.value || 0;
-  const average = Math.round(values.reduce((sum, val) => sum + val, 0) / values.length);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  
+  // Filter out 0 bpm values for statistics calculation
+  const validValues = values.filter(val => val > 0);
+  
+  if (validValues.length === 0) {
+    return { current, average: 0, min: 0, max: 0, zone: 'resting' };
+  }
+  
+  const average = Math.round(validValues.reduce((sum, val) => sum + val, 0) / validValues.length);
+  const min = Math.min(...validValues);
+  const max = Math.max(...validValues);
   const zone = calculateHeartRateZone(current);
 
   return { current, average, min, max, zone };
@@ -407,19 +415,6 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
           </View>
         </View>
 
-        {/* **FIXED: Real-time data quality for Nordic sensor** */}
-        {isConnected && sensorData.heartRate && (
-          <View style={styles.sensorQualityContainer}>
-            <Text style={styles.sensorQualityLabel}>Signal Quality:</Text>
-            <Text style={styles.sensorQualityValue}>
-              {sensorData.heartRate.signalQuality}%
-            </Text>
-            <Text style={styles.dataRateText}>
-              ({sensorData.dataRate} readings/sec)
-            </Text>
-          </View>
-        )}
-
         {/* Statistics Cards with Neumorphic Design */}
         <View style={styles.statsContainer}>
           <NeumorphicCard style={styles.statCard}>
@@ -465,9 +460,6 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
             <View style={styles.spO2Details}>
               <Text style={styles.spO2DetailText}>
                 Pulse: {sensorData.spO2.pulseRate} BPM
-              </Text>
-              <Text style={styles.spO2DetailText}>
-                Quality: {sensorData.spO2.signalQuality}%
               </Text>
             </View>
           </View>

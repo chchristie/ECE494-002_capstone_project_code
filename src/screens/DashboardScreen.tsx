@@ -83,7 +83,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
           const readings = await DataManager.getSessionReadings(session.id);
 
           readings.forEach(r => {
-            if (r.heartRate?.value) {
+            if (r.heartRate?.value && r.heartRate.value > 0) {
               const hr = r.heartRate.value;
               totalHR += hr;
               totalPoints++;
@@ -163,7 +163,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
               <Text style={styles.activeSubtitle}>
                 {state.connectedDevice?.name || 'Connected Device'}
               </Text>
-              {sensorData.heartRate?.heartRate && (
+              {sensorData.heartRate && sensorData.heartRate.heartRate > 0 && (
                 <Text style={styles.activeBPM}>
                   {sensorData.heartRate.heartRate} BPM
                 </Text>

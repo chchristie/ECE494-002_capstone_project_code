@@ -17,8 +17,6 @@ import DataManager from '../services/DataManager';
 import type { SimpleNavigationProps } from '../types/simple-navigation';
 import { theme } from '../styles/theme';
 import { useBluetooth } from '../context/BluetoothContext';
-import { BackgroundMonitoring } from '../services/BackgroundMonitoring';
-import { calculateHRV, interpretHRV, type HRVMetrics } from '../utils/hrvCalculations';
 import { FileExporter } from '../utils/FileExporter';
 
 type DataManagementScreenProps = SimpleNavigationProps & {
@@ -39,9 +37,6 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
   const [loading, setLoading] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [hrvMetrics, setHrvMetrics] = useState<HRVMetrics | null>(null);
-  const [recentRRIntervals, setRecentRRIntervals] = useState<number[]>([]);
-  const [connectionLog, setConnectionLog] = useState<Array<{timestamp: Date, event: string, quality?: number}>>([]);
   const [showBluetoothSection, setShowBluetoothSection] = useState(false);
   const [bluetoothCheckLog, setBluetoothCheckLog] = useState<Array<{timestamp: Date, connected: boolean}>>([]);
 
@@ -58,68 +53,6 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
   } = useBluetooth();
 
   const nordicDevices = getNordicDevices();
-
-  // Track RR intervals for HRV calculation
-  useEffect(() => {
-    if (sensorData.heartRate?.rrInterval) {
-      setRecentRRIntervals(prev => {
-        const updated = [...prev, sensorData.heartRate!.rrInterval!];
-        // Keep last 100 RR intervals for real-time HRV
-        return updated.slice(-100);
-      });
-    }
-  }, [sensorData.heartRate?.rrInterval]);
-
-  // Calculate HRV every 10 RR intervals
-  useEffect(() => {
-    if (recentRRIntervals.length >= 10) {
-      const hrv = calculateHRV(recentRRIntervals);
-      setHrvMetrics(hrv);
-    }
-  }, [recentRRIntervals]);
-
-  // Track connection quality changes
-  useEffect(() => {
-    if (isConnected && state.connectedDevice) {
-      const quality = sensorData.heartRate?.signalQuality || 0;
-      setConnectionLog(prev => {
-        const newEntry = {
-          timestamp: new Date(),
-          event: `Connected to ${state.connectedDevice?.name}`,
-          quality,
-        };
-        return [...prev.slice(-49), newEntry]; // Keep last 50 events
-      });
-    } else if (!isConnected && connectionLog.length > 0 && connectionLog[connectionLog.length - 1].event.includes('Connected')) {
-      // Log disconnection
-      setConnectionLog(prev => [...prev, {
-        timestamp: new Date(),
-        event: 'Disconnected',
-      }]);
-    }
-  }, [isConnected]);
-
-  // Track signal quality degradation
-  useEffect(() => {
-    if (isConnected && sensorData.heartRate?.signalQuality !== undefined) {
-      const quality = sensorData.heartRate.signalQuality;
-      if (quality < 50) {
-        setConnectionLog(prev => {
-          const lastEntry = prev[prev.length - 1];
-          // Only log if last entry wasn't a quality warning within last 10 seconds
-          if (!lastEntry || lastEntry.event !== 'Poor signal quality' ||
-              (new Date().getTime() - lastEntry.timestamp.getTime()) > 10000) {
-            return [...prev.slice(-49), {
-              timestamp: new Date(),
-              event: 'Poor signal quality',
-              quality,
-            }];
-          }
-          return prev;
-        });
-      }
-    }
-  }, [sensorData.heartRate?.signalQuality]);
 
   const loadStats = async () => {
     setLoading(true);
@@ -717,52 +650,6 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
                     </View>
                   </View>
 
-                  {/* HRV Metrics */}
-                  {hrvMetrics && (
-                    <View style={styles.debugCard}>
-                      <Text style={styles.debugCardTitle}>HRV Metrics (Heart Rate Variability)</Text>
-                      <View style={styles.debugRow}>
-                        <Text style={styles.debugLabel}>RMSSD:</Text>
-                        <Text style={[styles.debugValue, {
-                          color: hrvMetrics.rmssd < 20 ? theme.colors.error :
-                                 hrvMetrics.rmssd > 50 ? theme.colors.success :
-                                 theme.colors.onSurface
-                        }]}>
-                          {hrvMetrics.rmssd} ms
-                        </Text>
-                      </View>
-                      <View style={styles.debugRow}>
-                        <Text style={styles.debugLabel}>SDNN:</Text>
-                        <Text style={[styles.debugValue, {
-                          color: hrvMetrics.sdnn < 50 ? theme.colors.error :
-                                 hrvMetrics.sdnn > 100 ? theme.colors.success :
-                                 theme.colors.onSurface
-                        }]}>
-                          {hrvMetrics.sdnn} ms
-                        </Text>
-                      </View>
-                      <View style={styles.debugRow}>
-                        <Text style={styles.debugLabel}>pNN50:</Text>
-                        <Text style={styles.debugValue}>{hrvMetrics.pnn50}%</Text>
-                      </View>
-                      <View style={styles.debugRow}>
-                        <Text style={styles.debugLabel}>Mean RR:</Text>
-                        <Text style={styles.debugValue}>{hrvMetrics.meanRR} ms</Text>
-                      </View>
-                      <View style={styles.debugRow}>
-                        <Text style={styles.debugLabel}>Mean HR:</Text>
-                        <Text style={styles.debugValue}>{hrvMetrics.meanHR} BPM</Text>
-                      </View>
-                      <View style={styles.debugRow}>
-                        <Text style={styles.debugLabel}>Samples:</Text>
-                        <Text style={styles.debugValue}>{hrvMetrics.validSamples}</Text>
-                      </View>
-                      <Text style={styles.hrvInterpretation}>
-                        {interpretHRV(hrvMetrics).interpretation}
-                      </Text>
-                    </View>
-                  )}
-
                   {/* Bluetooth Connection Checker (5-minute interval) */}
                   <View style={styles.debugCard}>
                     <View style={styles.debugCardHeader}>
@@ -794,39 +681,6 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
                             </View>
                           ))}
                         </>
-                      )}
-                    </ScrollView>
-                  </View>
-
-                  {/* Connection Quality Log */}
-                  <View style={styles.debugCard}>
-                    <View style={styles.debugCardHeader}>
-                      <Text style={styles.debugCardTitle}>Connection Quality Log</Text>
-                      <TouchableOpacity onPress={() => setConnectionLog([])}>
-                        <Text style={styles.clearLogsText}>Clear</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <ScrollView style={styles.logsContainer} nestedScrollEnabled>
-                      {connectionLog.length === 0 ? (
-                        <Text style={styles.noLogsText}>No connection events yet...</Text>
-                      ) : (
-                        connectionLog.slice(-10).reverse().map((entry, index) => (
-                          <View key={index} style={styles.connectionLogEntry}>
-                            <Text style={styles.connectionLogTime}>
-                              {entry.timestamp.toLocaleTimeString()}
-                            </Text>
-                            <Text style={styles.connectionLogEvent}>{entry.event}</Text>
-                            {entry.quality !== undefined && (
-                              <Text style={[styles.connectionLogQuality, {
-                                color: entry.quality < 50 ? theme.colors.error :
-                                       entry.quality < 80 ? theme.colors.warning :
-                                       theme.colors.success
-                              }]}>
-                                {entry.quality}%
-                              </Text>
-                            )}
-                          </View>
-                        ))
                       )}
                     </ScrollView>
                   </View>
@@ -1079,41 +933,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: theme.colors.primary,
-  },
-  hrvInterpretation: {
-    fontSize: 12,
-    color: theme.colors.onSurfaceVariant,
-    fontStyle: 'italic',
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.outline,
-  },
-  connectionLogEntry: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.outline,
-  },
-  connectionLogTime: {
-    fontSize: 10,
-    fontFamily: 'monospace',
-    color: theme.colors.onSurfaceVariant,
-    width: 70,
-  },
-  connectionLogEvent: {
-    fontSize: 11,
-    color: theme.colors.onSurface,
-    flex: 1,
-    marginHorizontal: 8,
-  },
-  connectionLogQuality: {
-    fontSize: 11,
-    fontWeight: '600',
-    width: 40,
-    textAlign: 'right',
   },
   bluetoothSection: {
     marginBottom: 16,

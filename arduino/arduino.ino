@@ -1,132 +1,3 @@
-/*
-==============================================================================
-  HEART RATE MONITOR - NORDIC nRF52840 FIRMWARE
-==============================================================================
-
-PROJECT PURPOSE:
-  BLE-based real-time monitoring of heart rate, SpO2 (blood oxygen saturation),
-  and 3-axis accelerometer data for research and health applications. Provides
-  wireless sensor data streaming via Bluetooth Low Energy to mobile device.
-
-HARDWARE CONFIGURATION:
-  - Microcontroller: Nordic nRF52840 (Adafruit Feather nRF52840 or compatible)
-  - Heart Rate & SpO2 Sensor: MAX30101 Biosensor Module (I2C address 0x55)
-  - Accelerometer: LSM6DS3 IMU Sensor (I2C address 0x6A)
-  - Real-Time Clock: DS3231 RTC (for Unix timestamp synchronization)
-  - Battery Monitor: Analog pin A0 with voltage divider (0-3.3V input)
-  - Power: LiPo battery 3.0V-4.2V nominal
-
-BLE SERVICES IMPLEMENTED:
-
-  1. Heart Rate Service (UUID: 0x180D)
-     - Characteristic: 0x2A37 (Heart Rate Measurement)
-     - Format: 2 bytes
-       * Byte 0: Flags (0b00000110 when contact detected, 0b00000000 otherwise)
-       * Byte 1: BPM value (0-255)
-     - Transmission: ~10 Hz when connected
-     - Contact Detection: Flag set when biohubData.status == 3 (valid reading)
-
-  2. Pulse Oximeter Service (UUID: 0x1822)
-     - Characteristic: 0x2A5E (Pulse Oximetry Spot-Check)
-     - Format: Variable (SpO2% + Pulse Rate)
-     - Transmission: ~10 Hz when connected
-     - Data Source: MAX30101 via SparkFun Bio Sensor Hub library
-
-  3. Battery Service (UUID: 0x180F)
-     - Characteristic: 0x2A19 (Battery Level)
-     - Format: 1 byte (0-100%)
-     - Transmission: ~10 Hz when connected
-     - Measurement: Analog pin A0 with voltage divider scaling
-
-  4. Motion Service (UUID: 0x1819)
-     - Characteristic: 0x2A5C (Accelerometer)
-     - Format: 14 bytes
-       * Bytes 0-7: Unix timestamp (milliseconds, 64-bit little-endian)
-       * Byte 8-9: X-axis acceleration (16-bit signed integer, LSB first)
-       * Byte 10-11: Y-axis acceleration (16-bit signed integer, LSB first)
-       * Byte 12-13: Z-axis acceleration (16-bit signed integer, LSB first)
-     - Scale Factor: ±2g range (divide raw value by 16384 to convert to g units)
-     - Transmission: ~10 Hz when connected
-     - Data Source: LSM6DS3 accelerometer (100 Hz internal sampling)
-
-TIMING SYSTEM:
-  - Architecture: Counter-based state machine with 100ms intervals
-  - Counter Range: 0-20 (21 total states)
-  - Timer Resolution: 100ms per increment
-  - Total Cycle Time: 2.1 seconds per complete counter reset
-
-  State Machine Breakdown:
-    - case 3: Read MAX30101 biosensor (Heart Rate + SpO2) via I2C
-    - case 10: Execute all BLE notifications (HR, SpO2, Battery, Accel)
-              Transmission rate = 1 Hz (sends every 1 second)
-    - case 20: Reset counter to 0
-    - Other: IMU/accelerometer data buffering and accumulation
-
-  BLE Transmission Rate: 10 Hz notifications but only at counter==10 (1 Hz actual rate)
-  Sensor Sampling: MAX30101 at 100 samples/second (internal)
-                  LSM6DS3 at 100 Hz (via interrupt-driven circular buffer)
-
-ACCELEROMETER DATA FORMAT (14 bytes):
-  Little-endian encoding for cross-platform compatibility:
-
-  Bytes 0-7: Unix Timestamp (Milliseconds)
-    - Format: uint64_t, little-endian (LSB first)
-    - Example: 1697000000000 ms = 0x00 0xF8 0xBE 0x6E 0x63 0x00 0x00 0x00 (in bytes 0-7)
-    - Source: DS3231 RTC synchronized via timeSyncChar during connection
-    - Validity: Must be > 1609459200000 (2021-01-01), else use system time
-
-  Bytes 8-9: X-axis Acceleration
-    - Format: int16_t, little-endian (LSB first, signed)
-    - Raw Value Range: -32768 to +32767
-    - Physical Value: raw / 16384 = acceleration in g
-    - Example: 16384 = +1.0g, -16384 = -1.0g
-
-  Bytes 10-11: Y-axis Acceleration
-    - Same format and range as X-axis
-
-  Bytes 12-13: Z-axis Acceleration
-    - Same format and range as X-axis
-    - Note: At rest, expect Z ≈ 16384 (gravity vector = +1.0g upward)
-
-IMPORTANT NOTES:
-
-  1. RTC Synchronization:
-     - Real-Time Clock MUST be synchronized with phone time for valid timestamps
-     - Synchronization occurs automatically when device first connects
-     - If RTC not synced, timestamps will be 0 or invalid
-     - Fallback: Phone time will be used if RTC fails
-
-  2. Sensor Readings Timing:
-     - MAX30101 biosensor readings occur at case 3 of main loop
-     - Readings triggered via bioHub.readBpm() every 100-200ms
-     - Returns: Heart Rate (BPM), SpO2 (%), and status (0-3)
-     - Status 3 = valid finger detection, status 0 = no finger detected
-
-  3. Bluetooth Reliability:
-     - Watchdog Timer: 10-second timeout (auto-resets if frozen)
-     - Connection: Auto-advertising if disconnected
-     - FIFO Overflow: Bluetooth stack handles queueing (rarely exceeds 4 packets)
-
-  4. Buffer Management:
-     - Accelerometer circular buffer: 20 samples (accelBuffX/Y/Z arrays)
-     - New samples added at each main loop iteration (100ms rate)
-     - Buffer sent at case 10 (every 1 second)
-     - No sample loss expected at normal operation rates
-
-  5. Power Consumption:
-     - BLE Active: ~15-30mA (depends on notification rate)
-     - IMU Active: ~1mA (100 Hz sampling)
-     - Biosensor Active: ~10mA (100 samples/second)
-     - Total with WiFi off: ~30-50mA continuous
-     - Battery Life: ~40-60 hours on typical 350mAh LiPo
-
-FIRMWARE VERSION: 1.1 - Stability Fixes Applied
-LAST UPDATED: 2025-01-01
-AUTHOR: Heart Rate Monitor Project Team
-
-==============================================================================
-*/
-
 #include <Arduino.h>
 #include "LSM6DS3.h"
 #include <SparkFun_Bio_Sensor_Hub_Library.h>
@@ -196,7 +67,9 @@ BLECharacteristic bodySensorLocation = BLECharacteristic(UUID16_CHR_BODY_SENSOR_
 
 // Pulse Oximeter Service (0x1822)
 BLEService pulseOxService = BLEService(0x1822);
-BLECharacteristic pulseOxChar = BLECharacteristic(0x2A5E);
+BLECharacteristic pulseOxChar = BLECharacteristic(0x2A5F);  // PLX Continuous Measurement
+BLECharacteristic pulseOxFeatures = BLECharacteristic(0x2A60);  // PLX Features
+
 
 // FIXED: Motion Service (0x1819) - SINGLE characteristic (app expects this!)
 BLEService motionService = BLEService(0x1819);
@@ -342,7 +215,7 @@ Serial.begin(115200);
   // Heart Rate Service (0x180D)
   hrmService.begin();
 
-  hrmMeasurement.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+  hrmMeasurement.setProperties(CHR_PROPS_NOTIFY);
   hrmMeasurement.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   hrmMeasurement.setFixedLen(2);
   hrmMeasurement.setCccdWriteCallback(cccd_callback);
@@ -352,17 +225,25 @@ Serial.begin(115200);
   bodySensorLocation.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   bodySensorLocation.setFixedLen(1);
   bodySensorLocation.begin();
-  bodySensorLocation.write8(2); // Wrist location
+  bodySensorLocation.write16(0); // Other location
   Serial.println("Heart Rate Service (0x180D) started");
 
   // Pulse Oximeter Service (0x1822)
   pulseOxService.begin();
 
-  pulseOxChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+  pulseOxChar.setProperties(CHR_PROPS_NOTIFY);
   pulseOxChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-  pulseOxChar.setFixedLen(2);
+  pulseOxChar.setFixedLen(5);  // Flags(1) + SpO2(2) + HR(2)
   pulseOxChar.setCccdWriteCallback(cccd_callback);
   pulseOxChar.begin();
+
+  pulseOxFeatures.setProperties(CHR_PROPS_READ);
+  pulseOxFeatures.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  pulseOxFeatures.setFixedLen(2);
+  pulseOxFeatures.begin();
+  pulseOxFeatures.write16(0); // No extra features
+
+
   Serial.println("Pulse Oximeter Service (0x1822) started");
 
   // FIXED: Motion Service (0x1819) - Single characteristic with 14-byte format
@@ -777,7 +658,7 @@ uint64_t getCurrentTimestamp() {
 
 void sendHrmBLE() {
   // Send heart rate with contact detection flag
-  uint8_t hrm_flags = (biohubData.status == 3) ? 0b00000110 : 0b00000000;
+  uint8_t hrm_flags = (biohubData.status == 3) ? 0b00000110 : 0b00000010;
   uint8_t hrm_val = (uint8_t)biohubData.heartRate;
 
   uint8_t hrmData[2] = { hrm_flags, hrm_val };
@@ -791,15 +672,36 @@ void sendHrmBLE() {
 }
 
 void sendPulseOxBLE() {
-  // Send SpO2 level
-  uint8_t pulseOx_flags = 0x00;
-  uint8_t pulseOx_val = (uint8_t)biohubData.oxygen;
+  // Send PLX Continuous Measurement data
+  // Format: [Flags(1), SpO2(2 LE), PulseRate(2 LE)]
+  
+  // Flag fields
+  // Bit 0 - SpO2PR-Fast field is present
+  // Bit 1 - SpO2PR-Slow field is present
+  // Bit 2 - Measurement Status field is present
+  // Bit 3 - Device and Sensor Status field is present
+  // Bit 4 - Pulse Amplitude Index field is present
+  // Bits 5-7 - reserved for future use
+  uint8_t pulseOx_flags = 0x00;  // No special fields present
+  
+  uint16_t spO2_value = (uint16_t)biohubData.oxygen;  // SpO2 percentage (0-100)
+  uint16_t pulseRate_value = (uint16_t)biohubData.heartRate;  // Pulse rate in bpm
 
-  uint8_t pulseOx_data[2] = { pulseOx_flags, pulseOx_val };
-  pulseOxChar.notify(pulseOx_data, 2);
+  uint8_t pulseOx_data[5];
+  pulseOx_data[0] = pulseOx_flags;
+  
+  // SpO2 in little endian (LSB, MSB)
+  pulseOx_data[1] = (uint8_t)(spO2_value & 0xFF);
+  pulseOx_data[2] = (uint8_t)((spO2_value >> 8) & 0xFF);
+  
+  // Pulse Rate in little endian (LSB, MSB)
+  pulseOx_data[3] = (uint8_t)(pulseRate_value & 0xFF);
+  pulseOx_data[4] = (uint8_t)((pulseRate_value >> 8) & 0xFF);
+
+  pulseOxChar.notify(pulseOx_data, 5);
 
   Serial.print("SpO2: ");
-  Serial.print(pulseOx_val);
+  Serial.print(spO2_value);
   Serial.println("%");
 }
 
@@ -868,3 +770,4 @@ void sendAccelerometerBLE() {
   Serial.print("Timestamp: ");
   Serial.println(millis() - connectionStartTime);
 }
+ 

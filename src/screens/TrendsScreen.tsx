@@ -67,16 +67,16 @@ function convertReadingsToCSV(readings: any[]): string {
 type TimeRange = '5m' | '1h' | '6h' | '24h' | '7d' | 'all';
 
 const TIME_RANGES: { label: string; value: TimeRange; hours: number }[] = [
+  { label: 'All', value: 'all', hours: Infinity },
   { label: '5M', value: '5m', hours: 5 / 60 },  // 5 minutes
   { label: '1H', value: '1h', hours: 1 },
   { label: '6H', value: '6h', hours: 6 },
   { label: '24H', value: '24h', hours: 24 },
   { label: '7D', value: '7d', hours: 168 },
-  { label: 'All', value: 'all', hours: Infinity },
 ];
 
 const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
-  const [selectedRange, setSelectedRange] = useState<TimeRange>('5m');
+  const [selectedRange, setSelectedRange] = useState<TimeRange>('all');
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [csvData, setCsvData] = useState<ParsedCSVData | null>(null);
@@ -186,14 +186,18 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     const sampled = sampleData(filteredData, 100); // Max 100 points for smooth rendering
 
     // Heart Rate data - NEW FORMAT uses nested objects
-    const hrData = sampled
-      .filter(r => r.heartRate !== undefined)
-      .map(r => ({ value: r.heartRate!.bpm, timestamp: r.timestamp }));
+    // Map zero or missing values to null to create gaps in the plot
+    const hrData = sampled.map(r => ({
+      value: (r.heartRate !== undefined && r.heartRate.bpm > 0) ? r.heartRate.bpm : null,
+      timestamp: r.timestamp
+    }));
 
     // SpO2 data - NEW FORMAT uses nested objects
-    const spO2Data = sampled
-      .filter(r => r.spO2 !== undefined)
-      .map(r => ({ value: r.spO2!.percent, timestamp: r.timestamp }));
+    // Map zero or missing values to null to create gaps in the plot
+    const spO2Data = sampled.map(r => ({
+      value: (r.spO2 !== undefined && r.spO2.percent > 0) ? r.spO2.percent : null,
+      timestamp: r.timestamp
+    }));
 
     // Accelerometer magnitude data - NEW FORMAT uses nested objects
     const accelData = sampled
@@ -207,8 +211,9 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
   const stats = useMemo(() => {
     if (!filteredData || filteredData.length === 0) return null;
 
-    const hrValues = filteredData.filter(r => r.heartRate !== undefined).map(r => r.heartRate!.bpm);
-    const spO2Values = filteredData.filter(r => r.spO2 !== undefined).map(r => r.spO2!.percent);
+    // Filter out zero values for HR and SpO2 (0 is not a valid physiological reading)
+    const hrValues = filteredData.filter(r => r.heartRate !== undefined && r.heartRate.bpm > 0).map(r => r.heartRate!.bpm);
+    const spO2Values = filteredData.filter(r => r.spO2 !== undefined && r.spO2.percent > 0).map(r => r.spO2!.percent);
     const accelValues = filteredData.filter(r => r.accelerometer !== undefined).map(r => r.accelerometer!.magnitude);
 
     const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
@@ -339,46 +344,69 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
   const renderCharts = () => {
     if (!chartData) return null;
 
+    // Calculate y-axis ranges with ±2 padding for HR and SpO2 (filter out null values)
+    const hrValues = chartData.hrData.map(d => d.value).filter((v): v is number => v !== null);
+    const hrMin = hrValues.length > 0 ? Math.max(0, Math.min(...hrValues) - 2) : 0;
+    const hrMax = hrValues.length > 0 ? Math.max(...hrValues) + 2 : 100;
+
+    const spO2Values = chartData.spO2Data.map(d => d.value).filter((v): v is number => v !== null);
+    const spO2Min = spO2Values.length > 0 ? Math.max(0, Math.min(...spO2Values) - 2) : 0;
+    const spO2Max = spO2Values.length > 0 ? Math.min(100, Math.max(...spO2Values) + 2) : 100;
+
+    // Calculate y-axis range for accelerometer with proportional buffer
+    // Buffer is 25% of data range on each side, so data takes up ~67% of plot
+    const accelValues = chartData.accelData.map(d => d.value).filter((v): v is number => v !== null);
+    const accelDataMin = accelValues.length > 0 ? Math.min(...accelValues) : 0;
+    const accelDataMax = accelValues.length > 0 ? Math.max(...accelValues) : 2;
+    const accelRange = accelDataMax - accelDataMin || 0.5; // Minimum range of 0.5 if data is flat
+    const accelBuffer = accelRange * 0.25;
+    const accelMin = Math.max(0, accelDataMin - accelBuffer);
+    const accelMax = accelDataMax + accelBuffer;
+
     return (
       <View style={styles.chartsContainer}>
         {/* Heart Rate Chart */}
-        {chartData.hrData.length > 0 && (
+        {hrValues.length > 0 && (
           <SimpleLineChart
             data={chartData.hrData}
             width={screenWidth - 32}
             height={250}
             color="#e74c3c"
-            showDots={chartData.hrData.length <= 20}
             title="💓 Heart Rate (BPM)"
             showXAxisTime={true}
+            yMin={hrMin}
+            yMax={hrMax}
+            forceIntegerTicks={true}
           />
         )}
 
         {/* SpO2 Chart */}
-        {chartData.spO2Data.length > 0 && (
+        {spO2Values.length > 0 && (
           <SimpleLineChart
             data={chartData.spO2Data}
             width={screenWidth - 32}
             height={250}
             color="#3498db"
-            showDots={chartData.spO2Data.length <= 20}
             title="🫁 Blood Oxygen (SpO2 %)"
             showXAxisTime={true}
+            yMin={spO2Min}
+            yMax={spO2Max}
+            forceIntegerTicks={true}
           />
         )}
 
-        {/* Accelerometer Chart - Fixed Y-axis range ±2g */}
+        {/* Accelerometer Chart - Dynamic Y-axis range based on data */}
         {chartData.accelData.length > 0 && (
           <SimpleLineChart
             data={chartData.accelData}
             width={screenWidth - 32}
             height={250}
             color="#2ecc71"
-            showDots={chartData.accelData.length <= 20}
             title="📈 Accelerometer Magnitude (g)"
-            yMin={0}
-            yMax={2}
+            yMin={accelMin}
+            yMax={accelMax}
             showXAxisTime={true}
+            yAxisDecimalPlaces={3}
           />
         )}
       </View>

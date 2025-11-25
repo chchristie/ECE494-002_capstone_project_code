@@ -109,13 +109,11 @@ export interface HeartRateData {
   rrIntervals?: number[];     // R-R intervals for HRV analysis
   timestamp: Date;
   deviceId: string;
-  signalQuality: number;      // 0-100%
 }
 
 export interface SpO2Data {
   spO2: number;               // Oxygen saturation percentage
   pulseRate: number;          // Pulse rate from SpO2 sensor
-  signalQuality: number;      // 0-100%
   timestamp: Date;
   deviceId: string;
   perfusionIndex?: number;    // Optional perfusion index
@@ -171,8 +169,7 @@ export const isValidHeartRateData = (data: unknown): data is HeartRateData => {
     typeof data === 'object' &&
     data !== null &&
     typeof (data as HeartRateData).heartRate === 'number' &&
-    typeof (data as HeartRateData).contactDetected === 'boolean' &&
-    typeof (data as HeartRateData).signalQuality === 'number'
+    typeof (data as HeartRateData).contactDetected === 'boolean'
   );
 };
 
@@ -244,7 +241,6 @@ export class NordicDataParser {
             contactDetected: true,
             timestamp: new Date(),
             deviceId,
-            signalQuality: 85, // Assume good quality for Seeed Studio
           };
         }
       }
@@ -273,14 +269,12 @@ export class NordicDataParser {
         contactDetected: true,
         timestamp: new Date(),
         deviceId,
-        signalQuality: 75,
       };
       
       if (spO2 !== undefined) {
         spO2Data = {
           spO2,
           pulseRate: heartRate,
-          signalQuality: 75,
           timestamp: new Date(),
           deviceId,
         };
@@ -341,10 +335,6 @@ export class NordicDataParser {
         }
       }
       
-      // Calculate signal quality based on contact and data validity
-      const signalQuality = contactDetected && heartRate > 0 ? 
-        Math.min(100, Math.max(0, 100 - Math.abs(heartRate - 70))) : 0;
-      
       const result: HeartRateData = {
         heartRate,
         contactDetected,
@@ -352,7 +342,6 @@ export class NordicDataParser {
         rrIntervals,
         timestamp: new Date(),
         deviceId,
-        signalQuality,
       };
       
       return isValidHeartRateData(result) ? result : null;
@@ -362,21 +351,31 @@ export class NordicDataParser {
     }
   }
   
-  // Parse SeedStudio SpO2 data (custom format - may need adjustment)
+  // Parse PLX Continuous Measurement data (BLE Standard 0x2A5F)
   static parseSpO2Data(data: Uint8Array, deviceId: string): SpO2Data | null {
-    if (data.length < 2) return null;
+    if (data.length < 5) return null;  // Need at least 5 bytes: Flags(1) + SpO2(2) + HR(2)
     
     try {
-      // Assuming SeedStudio format: [SpO2%, PulseRate, SignalQuality, ...]
-      // This may need adjustment based on actual device specification
-      const spO2 = data[0];
-      const pulseRate = data[1];
-      const signalQuality = data.length > 2 ? data[2] : 0;
+      console.log('🩺 [Parser] Raw PLX Continuous buffer:', Array.from(data));
+      
+      // BLE PLX Continuous Measurement format:
+      // byte[0] = Flags (0x00)
+      // byte[1-2] = SpO2 (little endian, LSB first)
+      // byte[3-4] = Pulse Rate (little endian, LSB first)
+      
+      const flags = data[0];
+      
+      // Extract SpO2 (little endian 16-bit)
+      const spO2 = data[1] | (data[2] << 8);
+      
+      // Extract Pulse Rate (little endian 16-bit)
+      const pulseRate = data[3] | (data[4] << 8);
+      
+      console.log('🩺 [Parser] Parsed - SpO2:', spO2, '% | PulseRate:', pulseRate, 'bpm');
       
       const result: SpO2Data = {
         spO2,
         pulseRate,
-        signalQuality,
         timestamp: new Date(),
         deviceId,
       };
