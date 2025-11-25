@@ -1,0 +1,895 @@
+// Fixed HeartRateScreen.tsx - Properly prioritizes Nordic sensor data
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  Animated,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+
+import type { HeartRateScreenProps } from '../types/simple-navigation';
+import { useBluetooth } from '../context/BluetoothContext';
+import { HeartRateChart } from '../components/HeartRateChart';
+import { GlassContainer } from '../components/GlassContainer';
+import { NeumorphicCard } from '../components/NeumorphicCard';
+import { Heart3D } from '../components/3DHeart';
+import { ECGWave } from '../components/ECGWave';
+import { SimpleGradientText } from '../components/GradientText';
+import { ConnectionPulse } from '../components/ParticleEffects';
+import { theme } from '../styles/theme';
+import { calculateHRV, interpretHRV, type HRVMetrics } from '../utils/hrvCalculations';
+
+interface HeartRateReading {
+  value: number;
+  timestamp: number;
+  source: 'manual' | 'bluetooth' | 'simulated';
+}
+
+interface HeartRateStats {
+  current: number;
+  average: number;
+  min: number;
+  max: number;
+  zone: 'resting' | 'fat_burn' | 'cardio' | 'peak';
+}
+
+// Heart rate zone calculations
+const calculateHeartRateZone = (bpm: number, age: number = 30): HeartRateStats['zone'] => {
+  const maxHR = 220 - age;
+  const percentage = (bpm / maxHR) * 100;
+  
+  if (percentage < 60) return 'resting';
+  if (percentage < 70) return 'fat_burn';
+  if (percentage < 85) return 'cardio';
+  return 'peak';
+};
+
+const getZoneColor = (zone: HeartRateStats['zone']): string => {
+  const zoneColors = {
+    resting: theme.colors.success,
+    fat_burn: theme.colors.secondary,
+    cardio: theme.colors.tertiary,
+    peak: theme.colors.error,
+  };
+  return zoneColors[zone];
+};
+
+const getZoneLabel = (zone: HeartRateStats['zone']): string => {
+  const zoneLabels = {
+    resting: 'Resting',
+    fat_burn: 'Fat Burn',
+    cardio: 'Cardio',
+    peak: 'Peak',
+  };
+  return zoneLabels[zone];
+};
+
+// Calculate stats from readings
+const calculateStats = (readings: HeartRateReading[]): HeartRateStats => {
+  if (readings.length === 0) {
+    return { current: 0, average: 0, min: 0, max: 0, zone: 'resting' };
+  }
+
+  const values = readings.map(r => r.value);
+  const current = readings[readings.length - 1]?.value || 0;
+  const average = Math.round(values.reduce((sum, val) => sum + val, 0) / values.length);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const zone = calculateHeartRateZone(current);
+
+  return { current, average, min, max, zone };
+};
+
+// Convert readings to chart data format
+const convertToChartData = (readings: HeartRateReading[]) => {
+  return readings.map((reading, index) => ({
+    x: index,
+    y: reading.value,
+    timestamp: reading.timestamp,
+  }));
+};
+
+const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) => {
+  const [readings, setReadings] = useState<HeartRateReading[]>([]);
+  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [stats, setStats] = useState<HeartRateStats>({
+    current: 0,
+    average: 0,
+    min: 0,
+    max: 0,
+    zone: 'resting',
+  });
+  const [hrvMetrics, setHrvMetrics] = useState<HRVMetrics | null>(null);
+  const [rrIntervals, setRRIntervals] = useState<number[]>([]);
+
+  const { state, sensorData, isConnected } = useBluetooth();
+
+  // Animation values
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const hrValueAnim = useRef(new Animated.Value(0)).current;
+  const previousHR = useRef(0);
+
+  // Pulsing heart icon animation when monitoring
+  useEffect(() => {
+    if (isMonitoring || isConnected) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.15,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isMonitoring, isConnected]);
+
+  // Animate heart rate value changes
+  useEffect(() => {
+    if (stats.current !== previousHR.current && stats.current > 0) {
+      Animated.sequence([
+        Animated.timing(hrValueAnim, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(hrValueAnim, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      previousHR.current = stats.current;
+    }
+  }, [stats.current]);
+
+  // **FIXED: Handle real Nordic sensor data - REPLACES simulation**
+  useEffect(() => {
+    if (sensorData.heartRate && isConnected) {
+      console.log('✅ HR Screen received data:', sensorData.heartRate.heartRate, 'BPM');
+
+      const realReading: HeartRateReading = {
+        value: sensorData.heartRate.heartRate,
+        timestamp: sensorData.heartRate.timestamp.getTime(),
+        source: 'bluetooth',
+      };
+
+      setReadings(prev => [...prev.slice(-19), realReading]);
+
+      // Collect RR intervals for HRV calculation
+      if (sensorData.heartRate.rrIntervals && sensorData.heartRate.rrIntervals.length > 0) {
+        setRRIntervals(prev => {
+          const updated = [...prev, ...sensorData.heartRate!.rrIntervals!];
+          return updated.slice(-100); // Keep last 100 intervals
+        });
+      }
+    }
+  }, [sensorData.heartRate, isConnected]);
+
+  // Calculate HRV when we have enough RR intervals
+  useEffect(() => {
+    if (rrIntervals.length >= 10) {
+      const hrv = calculateHRV(rrIntervals);
+      setHrvMetrics(hrv);
+    }
+  }, [rrIntervals]);
+
+  // Auto-stop simulation when real data comes in
+  useEffect(() => {
+    if (isConnected && isMonitoring) {
+      setIsMonitoring(false);
+    }
+  }, [isConnected, isMonitoring]);
+
+  // Update stats when readings change
+  useEffect(() => {
+    try {
+      const newStats = calculateStats(readings);
+      setStats(newStats);
+    } catch (error) {
+      console.error('Error calculating stats:', error);
+      // Set safe default stats on error
+      setStats({ current: 0, average: 0, min: 0, max: 0, zone: 'resting' });
+    }
+  }, [readings]);
+
+  // **FIXED: Simulation only runs when NOT connected to Nordic device**
+  const simulateReading = useCallback(() => {
+    const newReading: HeartRateReading = {
+      value: 70 + Math.floor(Math.random() * 30), // 70-100 BPM
+      timestamp: Date.now(),
+      source: 'simulated',
+    };
+
+    setReadings(prev => [...prev.slice(-19), newReading]);
+  }, []);
+
+  // **FIXED: Start/stop monitoring with proper Nordic device logic**
+  const toggleMonitoring = useCallback(() => {
+    if (isMonitoring) {
+      setIsMonitoring(false);
+    } else {
+      if (!isConnected) {
+        Alert.alert(
+          'No Nordic Device Connected',
+          'Would you like to connect your Nordic heart rate monitor or use simulated data for testing?',
+          [
+            { text: 'Connect Nordic Device', onPress: () => navigation.navigate('Bluetooth') },
+            { text: 'Use Simulation', onPress: () => setIsMonitoring(true) },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else {
+        // Nordic device is connected - real monitoring will happen automatically
+        Alert.alert(
+          'Nordic Device Connected',
+          'Your Nordic sensor is connected and providing real-time data. No need to start simulation.',
+          [{ text: 'OK' }]
+        );
+      }
+    }
+  }, [isMonitoring, isConnected, navigation]);
+
+  // **FIXED: Monitoring interval only for simulation when NOT connected**
+  useEffect(() => {
+    if (isMonitoring && !isConnected) {
+      const interval = setInterval(() => {
+        try {
+          const newReading: HeartRateReading = {
+            value: 70 + Math.floor(Math.random() * 30), // 70-100 BPM
+            timestamp: Date.now(),
+            source: 'simulated',
+          };
+          setReadings(prev => {
+            // Safely update readings array
+            const updated = [...prev.slice(-19), newReading];
+            return updated;
+          });
+        } catch (error) {
+          console.error('Simulation error:', error);
+        }
+      }, 2000);
+
+      return () => {
+        clearInterval(interval);
+      };
+    }
+  }, [isMonitoring, isConnected]);
+
+  // Clear data
+  const clearData = useCallback(() => {
+    Alert.alert(
+      'Clear Data',
+      'Are you sure you want to clear all heart rate data?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Clear', 
+          style: 'destructive', 
+          onPress: () => {
+            setReadings([]);
+            setIsMonitoring(false);
+          }
+        },
+      ]
+    );
+  }, []);
+
+  // **FIXED: Data source indicator**
+  const getDataSourceText = () => {
+    if (isConnected) {
+      return 'Nordic Sensor Data';
+    } else if (isMonitoring) {
+      return 'Simulated Data';
+    } else {
+      return 'No Active Monitoring';
+    }
+  };
+
+  // Convert and validate chart data
+  const chartData = React.useMemo(() => {
+    try {
+      return convertToChartData(readings);
+    } catch (error) {
+      console.error('Error converting chart data:', error);
+      return [];
+    }
+  }, [readings]);
+
+  return (
+    <ScrollView style={styles.container}>
+      {/* Connection particles effect */}
+      <ConnectionPulse isActive={isConnected} color={theme.colors.success} />
+
+      <View style={styles.content}>
+        {/* Current Heart Rate Display with Glass Morphism */}
+        <GlassContainer style={styles.glassContainer}>
+          {/* 3D Animated Heart */}
+          <View style={styles.heartSection}>
+            <Heart3D
+              size={80}
+              color={stats.current > 0 ? getZoneColor(stats.zone) : theme.colors.outline}
+              gradientColors={
+                stats.current > 0
+                  ? [getZoneColor(stats.zone), theme.colors.primary]
+                  : [theme.colors.outline]
+              }
+              animate={isMonitoring || isConnected}
+              heartRate={stats.current}
+            />
+          </View>
+
+          {/* Heart Rate Value with Gradient Text */}
+          <Animated.View
+            style={[
+              styles.rateDisplay,
+              {
+                transform: [
+                  {
+                    scale: hrValueAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <SimpleGradientText
+              colors={
+                stats.current > 0
+                  ? [getZoneColor(stats.zone), theme.colors.primary]
+                  : theme.colors.primaryGradient
+              }
+              style={styles.currentRate}
+            >
+              {stats.current}
+            </SimpleGradientText>
+            <Text style={styles.currentRateUnit}>BPM</Text>
+          </Animated.View>
+
+          {/* Enhanced Zone Indicator with Gradient */}
+          <View
+            style={[
+              styles.zoneIndicatorGradient,
+              {
+                backgroundColor: getZoneColor(stats.zone),
+                shadowColor: getZoneColor(stats.zone),
+              },
+            ]}
+          >
+            <Text style={styles.zoneText}>{getZoneLabel(stats.zone)}</Text>
+          </View>
+        </GlassContainer>
+
+        {/* ECG Wave Visualization */}
+        {stats.current > 0 && (
+          <View style={styles.ecgContainer}>
+            <ECGWave
+              heartRate={stats.current}
+              color={getZoneColor(stats.zone)}
+              height={100}
+              animate={isMonitoring || isConnected}
+            />
+          </View>
+        )}
+
+        {/* **FIXED: Enhanced Connection Status** */}
+        <View style={styles.statusContainer}>
+          <Icon
+            name={isConnected ? 'bluetooth-connected' : 'bluetooth-disabled'}
+            size={16}
+            color={isConnected ? theme.colors.success : theme.colors.error}
+          />
+          <Text style={[styles.statusText, { color: isConnected ? theme.colors.success : theme.colors.error }]}>
+            {isConnected ? 'Nordic Device Connected' : 'No Nordic Device'}
+          </Text>
+          
+          {/* Data source indicator */}
+          <View style={styles.dataSourceContainer}>
+            <Icon 
+              name={isConnected ? 'sensors' : isMonitoring ? 'play-circle-outline' : 'pause-circle-outline'} 
+              size={12} 
+              color={theme.colors.onSurfaceVariant} 
+            />
+            <Text style={styles.dataSourceText}>{getDataSourceText()}</Text>
+          </View>
+        </View>
+
+        {/* **FIXED: Real-time data quality for Nordic sensor** */}
+        {isConnected && sensorData.heartRate && (
+          <View style={styles.sensorQualityContainer}>
+            <Text style={styles.sensorQualityLabel}>Signal Quality:</Text>
+            <Text style={styles.sensorQualityValue}>
+              {sensorData.heartRate.signalQuality}%
+            </Text>
+            <Text style={styles.dataRateText}>
+              ({sensorData.dataRate} readings/sec)
+            </Text>
+          </View>
+        )}
+
+        {/* Statistics Cards with Neumorphic Design */}
+        <View style={styles.statsContainer}>
+          <NeumorphicCard style={styles.statCard}>
+            <Text style={styles.statLabel}>Average</Text>
+            <SimpleGradientText
+              colors={theme.colors.secondaryGradient}
+              style={styles.statValue}
+            >
+              {stats.average}
+            </SimpleGradientText>
+          </NeumorphicCard>
+          <NeumorphicCard style={styles.statCard}>
+            <Text style={styles.statLabel}>Min</Text>
+            <SimpleGradientText
+              colors={theme.colors.tertiaryGradient}
+              style={styles.statValue}
+            >
+              {stats.min}
+            </SimpleGradientText>
+          </NeumorphicCard>
+          <NeumorphicCard style={styles.statCard}>
+            <Text style={styles.statLabel}>Max</Text>
+            <SimpleGradientText
+              colors={theme.colors.primaryGradient}
+              style={styles.statValue}
+            >
+              {stats.max}
+            </SimpleGradientText>
+          </NeumorphicCard>
+        </View>
+
+        {/* SpO2 Display - Only show if data available */}
+        {isConnected && sensorData.spO2 && (
+          <View style={styles.spO2Container}>
+            <View style={styles.spO2Header}>
+              <Icon name="monitor-heart" size={20} color={theme.colors.secondary} />
+              <Text style={styles.spO2Title}>Blood Oxygen</Text>
+            </View>
+            <View style={styles.spO2Display}>
+              <Text style={styles.spO2Value}>{sensorData.spO2.spO2}</Text>
+              <Text style={styles.spO2Unit}>%</Text>
+            </View>
+            <View style={styles.spO2Details}>
+              <Text style={styles.spO2DetailText}>
+                Pulse: {sensorData.spO2.pulseRate} BPM
+              </Text>
+              <Text style={styles.spO2DetailText}>
+                Quality: {sensorData.spO2.signalQuality}%
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* HRV Display - Only show if data available */}
+        {isConnected && hrvMetrics && (
+          <View style={styles.hrvContainer}>
+            <View style={styles.hrvHeader}>
+              <Icon name="favorite" size={20} color={theme.colors.tertiary} />
+              <Text style={styles.hrvTitle}>Heart Rate Variability (HRV)</Text>
+            </View>
+
+            <View style={styles.hrvMetricsGrid}>
+              <View style={styles.hrvMetricCard}>
+                <Text style={styles.hrvMetricLabel}>RMSSD</Text>
+                <Text
+                  style={[
+                    styles.hrvMetricValue,
+                    {
+                      color:
+                        hrvMetrics.rmssd < 20
+                          ? theme.colors.error
+                          : hrvMetrics.rmssd > 50
+                          ? theme.colors.success
+                          : theme.colors.warning,
+                    },
+                  ]}
+                >
+                  {hrvMetrics.rmssd.toFixed(1)}
+                </Text>
+                <Text style={styles.hrvMetricUnit}>ms</Text>
+              </View>
+
+              <View style={styles.hrvMetricCard}>
+                <Text style={styles.hrvMetricLabel}>SDNN</Text>
+                <Text
+                  style={[
+                    styles.hrvMetricValue,
+                    {
+                      color:
+                        hrvMetrics.sdnn < 50
+                          ? theme.colors.error
+                          : hrvMetrics.sdnn > 100
+                          ? theme.colors.success
+                          : theme.colors.warning,
+                    },
+                  ]}
+                >
+                  {hrvMetrics.sdnn.toFixed(1)}
+                </Text>
+                <Text style={styles.hrvMetricUnit}>ms</Text>
+              </View>
+
+              <View style={styles.hrvMetricCard}>
+                <Text style={styles.hrvMetricLabel}>pNN50</Text>
+                <Text style={styles.hrvMetricValue}>
+                  {hrvMetrics.pnn50.toFixed(1)}
+                </Text>
+                <Text style={styles.hrvMetricUnit}>%</Text>
+              </View>
+            </View>
+
+            <View style={styles.hrvInfo}>
+              <Icon name="info-outline" size={14} color={theme.colors.onSurfaceVariant} />
+              <Text style={styles.hrvInfoText}>
+                {interpretHRV(hrvMetrics).overallStatus} - Based on {hrvMetrics.validSamples} samples
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Chart */}
+        {readings.length > 0 ? (
+          <HeartRateChart
+            data={chartData}
+            height={250}
+            showArea={true}
+            showPoints={false}
+            animate={true}
+          />
+        ) : (
+          <View style={styles.emptyState}>
+            <Icon name="favorite-border" size={64} color={theme.colors.outline} />
+            <Text style={styles.emptyStateTitle}>No Heart Rate Data</Text>
+            <Text style={styles.emptyStateText}>
+              {isConnected
+                ? 'Waiting for heart rate data from your sensor...'
+                : 'Connect a device or start simulation to see data'}
+            </Text>
+          </View>
+        )}
+
+        {/* **FIXED: Control Buttons with Nordic device logic** */}
+        <View style={styles.buttonContainer}>
+          {!isConnected && (
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                { backgroundColor: isMonitoring ? theme.colors.error : theme.colors.primary }
+              ]}
+              onPress={toggleMonitoring}
+            >
+              <Icon
+                name={isMonitoring ? 'stop' : 'play-arrow'}
+                size={20}
+                color={theme.colors.onPrimary}
+              />
+              <Text style={styles.primaryButtonText}>
+                {isMonitoring ? 'Stop Simulation' : 'Start Simulation'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => navigation.navigate('DataManagement')}
+          >
+            <Icon name="bluetooth" size={20} color={theme.colors.primary} />
+            <Text style={styles.secondaryButtonText}>
+              {isConnected ? 'Manage Device' : 'Connect Device'}
+            </Text>
+          </TouchableOpacity>
+
+          {readings.length > 0 && (
+            <TouchableOpacity style={styles.secondaryButton} onPress={clearData}>
+              <Icon name="clear-all" size={20} color={theme.colors.error} />
+              <Text style={[styles.secondaryButtonText, { color: theme.colors.error }]}>
+                Clear Data
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 100, // Add extra padding for tab bar
+  },
+  glassContainer: {
+    padding: 32,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  heartSection: {
+    marginBottom: 20,
+  },
+  rateDisplay: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 16,
+  },
+  currentRate: {
+    fontSize: 72,
+    fontWeight: '700',
+    letterSpacing: -2,
+  },
+  currentRateUnit: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
+    marginLeft: 8,
+  },
+  zoneIndicatorGradient: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 24,
+    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+  },
+  zoneText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.onPrimary,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  ecgContainer: {
+    marginBottom: 20,
+  },
+  statusContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 6,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  dataSourceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  dataSourceText: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+  },
+  sensorQualityContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surfaceVariant,
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  sensorQualityLabel: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+  },
+  sensorQualityValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  dataRateText: {
+    fontSize: 10,
+    color: theme.colors.onSurfaceVariant,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+  },
+  statLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  spO2Container: {
+    backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.secondary,
+  },
+  spO2Header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  spO2Title: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+  },
+  spO2Display: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 12,
+  },
+  spO2Value: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: theme.colors.secondary,
+  },
+  spO2Unit: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
+    marginLeft: 4,
+  },
+  spO2Details: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.outline,
+  },
+  spO2DetailText: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+  },
+  hrvContainer: {
+    backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.tertiary,
+  },
+  hrvHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  hrvTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+  },
+  hrvMetricsGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  hrvMetricCard: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    elevation: 1,
+  },
+  hrvMetricLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  hrvMetricValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme.colors.tertiary,
+    marginBottom: 2,
+  },
+  hrvMetricUnit: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+  },
+  hrvInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.outline,
+  },
+  hrvInfoText: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+    flex: 1,
+  },
+  buttonContainer: {
+    gap: 12,
+    marginTop: 16,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    elevation: 2,
+    gap: 8,
+  },
+  primaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.onPrimary,
+  },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.outline,
+    backgroundColor: theme.colors.surface,
+    gap: 8,
+  },
+  secondaryButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.colors.primary,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+});
+
+export default HeartRateScreen;

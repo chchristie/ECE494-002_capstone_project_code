@@ -1,0 +1,152 @@
+# React Native / Metro
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Expo (if used)
+.expo/
+.expo-shared/
+
+# Metro Bundler
+.metro-health-check*
+
+# Android build files
+android/app/build/
+android/build/
+android/.gradle/
+android/.idea/
+android/local.properties
+android/app/src/main/assets/index.android.bundle
+android/app/src/main/res/drawable-*/
+android/app/src/main/res/raw/
+
+# iOS build files (for future iOS support)
+ios/build/
+ios/Pods/
+ios/.xcode.env.local
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xcworkspace
+!default.xcworkspace
+xcuserdata
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+DerivedData
+
+# Gradle
+.gradle/
+gradle-wrapper.jar
+
+# APK files (keep only in builds/)
+*.apk
+*.aab
+!builds/*.apk
+!builds/*.aab
+
+# Keystore files (NEVER commit production keys!)
+*.keystore
+*.jks
+release-key.properties
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# VS Code
+.vscode/
+.history/
+
+# IntelliJ IDEA / Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+local.properties
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Jest / Testing
+coverage/
+.jest/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Buck
+.buckd/
+buck-out/
+
+# Watchman
+.watchmanconfig
+
+# Database files (local development)
+*.db
+*.sqlite
+*.sqlite3
+
+# CSV exports (local development)
+*.csv
+
+# Bundle artifact
+*.jsbundle
+
+# CocoaPods (iOS)
+ios/Pods/
+Podfile.lock
+
+# Fastlane (iOS deployment)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# Ruby (if using CocoaPods)
+.ruby-version
+vendor/bundle/
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+
+# Documentation build artifacts
+docs/_build/
+
+# Misc
+.idea
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
+.classpath
+
+# Keep these important files
+!.gitignore
+!README.md
+!package.json
+!package-lock.json

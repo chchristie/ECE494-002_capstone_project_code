@@ -1,0 +1,10 @@
+{
+  "name": "HeartRateMonitorClean",
+  "displayName": "HeartRateMonitor",
+  "android": {
+    "package": "com.chchristie.heartratemonitorclean"
+  },
+  "ios": {
+    "bundleIdentifier": "com.chchristie.heartratemonitorclean"
+  }
+}
