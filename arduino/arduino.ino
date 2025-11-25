@@ -12,7 +12,8 @@
 // ISR
 volatile bool intFlag = false;
 volatile int intCounter = 0;
-#define SLEEP_TIME 100  // FIXED: Changed back to 100ms (10 Hz sampling)
+volatile int secondCounter = 0; 
+#define SLEEP_TIME 10
 
 //*******************************************************************************************************************
 // IMU
@@ -21,7 +22,9 @@ LSM6DS3 myIMU(I2C_MODE, IMU_ADDRESS);
 #define IMU_BUFFER_SIZE 20
 #define IMU_SAMPLING_RATE 100
 
-// FIXED: Back to single buffer (simpler, works with app)
+int16_t accelRawBuffX[20];
+int16_t accelRawBuffY[20];
+int16_t accelRawBuffZ[20];
 int16_t accelBuffX[20];
 int16_t accelBuffY[20];
 int16_t accelBuffZ[20];
@@ -47,10 +50,13 @@ uint8_t biohubFifoData[6];
 
 //*******************************************************************************************************************
 // Battery monitoring
-#define VBAT_PIN A0  // FIXED: Added definition
-#define VBAT_DIVIDER 2.0
-#define VBAT_MIN 3.0
-#define VBAT_MAX 4.2  // FIXED: Changed back to 4.2V (standard LiPo max)
+#define PIN_VBAT          (32)  // D32/P0_31 battery voltage
+#define PIN_VBAT_ENABLE   (14)  // D14/P0_14 LOW:read enable
+#define PIN_HICHG         (22)  // D22/P0_13 charge current setting LOW:100mA HIGH:50mA
+#define PIN_CHG           (23)  // D23 charge indicator LOW:charge HIGH:no charge
+#define RESISTANCE_RATIO  2.961
+#define VBAT_MIN          3.0
+#define VBAT_MAX          3.7
 
 //*******************************************************************************************************************
 // Bluetooth Services and Characteristics
@@ -150,12 +156,12 @@ Serial.begin(115200);
     Serial.println(error);
   }
 
-  // FIXED: Disabled host side accelerometer (causes freezing)
-  // if (!enableHostSideAccelerometer()) {
-  //   Serial.println("Failed to configure biosensor for host side accelerometer");
-  // } else {
-  //   Serial.println("Biosensor configured for host side accelerometer");
-  // }
+  // Enable host side accelerometer
+  if (!enableHostSideAccelerometer()) {
+    Serial.println("Failed to configure biosensor for host side accelerometer");
+  } else {
+    Serial.println("Biosensor configured for host side accelerometer");
+  }
 
   // Set sample rate per second
   error = bioHub.setSampleRate(BIOSENSOR_SAMPLES);
@@ -209,7 +215,6 @@ Serial.begin(115200);
   batteryChar.setFixedLen(1);
   batteryChar.setCccdWriteCallback(cccd_callback);
   batteryChar.begin();
-  batteryChar.write8(93); // Initial value
   Serial.println("Battery Service (0x180F) started");
 
   // Heart Rate Service (0x180D)
@@ -330,16 +335,19 @@ void loop() {
     intFlag = false;
     intCounter += 1;
 
-    // FIXED: Read raw accelerometer data (no scaling here)
-    accelBuffX[intCounter - 1] = myIMU.readRawAccelX();
-    accelBuffY[intCounter - 1] = myIMU.readRawAccelY();
-    accelBuffZ[intCounter - 1] = myIMU.readRawAccelZ();
+    int16_t accelXRaw = myIMU.readRawAccelX();
+    int16_t accelYRaw = myIMU.readRawAccelY();
+    int16_t accelZRaw = myIMU.readRawAccelZ();
+
+    accelRawBuffX[intCounter-1] = accelXRaw;
+    accelRawBuffY[intCounter-1] = accelYRaw;
+    accelRawBuffZ[intCounter-1] = accelZRaw;
+    accelBuffX[intCounter-1] = accelXRaw * 61 / 1000;
+    accelBuffY[intCounter-1] = accelYRaw * 61 / 1000;
+    accelBuffZ[intCounter-1] = accelZRaw * 61 / 1000;
 
     uint8_t biohubStatus = 0;
     switch (intCounter) {
-      case 2:
-        // Skip - no host-side accelerometer
-        break;
       case 3:
         requestBiohubStatus();
         break;
@@ -387,16 +395,29 @@ void loop() {
         }
         break;
       case 10:
-        if (Bluefruit.connected()) {
-          // Send ALL sensor data (working at 1 Hz = once per second)
-          sendHrmBLE(); // Heart rate
-          sendPulseOxBLE(); // SpO2
-          sendBatteryBLE(); // Battery level
-          sendAccelerometerBLE(); // Accelerometer with timestamp
+        if (Bluefruit.connected() && secondCounter % 10 == 0) {
+          sendHrmBLE();
         }
         break;
+      case 11:
+        if (Bluefruit.connected() && secondCounter % 10 == 0) {
+          sendPulseOxBLE();
+        }
+        break;
+      case 12:
+        if (Bluefruit.connected() && secondCounter % 10 == 0) {
+          sendBatteryBLE();
+        }
+        break;
+      case 13:
+        if (Bluefruit.connected() && secondCounter % 10 == 0) {
+          sendAccelerometerBLE();
+        }
+        break;                
       case 20:
-        intCounter = 0; // Reset every 2 seconds
+        intCounter = 0;
+        secondCounter++;
+        sendAccelerometerDataToBiohub();
         break;
       }
 
@@ -497,6 +518,146 @@ extern "C" void RTC2_IRQHandler(void) {
     NRF_RTC2->TASKS_CLEAR = 1;
     intFlag = true;
   }
+}
+
+//**************************************************************************************************************
+// Function to enable the biohub to receive accelerometer data
+bool enableHostSideAccelerometer() {
+  Serial.println("Configuring biosensor for host side accelerometer");
+
+  uint8_t response;
+
+  // Set FIFO threshold: Send command 0xAA 0x10 0x01 0x0F
+  Wire.beginTransmission(BIOSENSOR_ADDRESS);
+  Wire.write(0x10);  // Command family
+  Wire.write(0x01);  // Command index
+  Wire.write(0x0F);  // Threshold
+  response = Wire.endTransmission();
+
+  if (response != 0) {
+    Serial.print("I2C transmission setting FIFO threshold: ");
+    Serial.println(response);
+    return false;
+  }
+  delay(45);
+
+  // Read response: should be 0x00 for success
+  Wire.requestFrom(BIOSENSOR_ADDRESS, 1);
+  response = Wire.read();
+  if (response != 0) {
+    Serial.print("Failed to enable input FIFO for host accelerometer , response: ");
+    Serial.println(response, HEX);
+    return false;
+  }
+
+  // Enable MAX30101: Send command 0x AA 0x44 0x03 0x01
+  Wire.beginTransmission(BIOSENSOR_ADDRESS);
+  Wire.write(0x44);  // Command family
+  Wire.write(0x03);  // Command index
+  Wire.write(0x01);  // Enable
+  response = Wire.endTransmission();
+
+  if (response != 0) {
+    Serial.print("I2C transmission enablinb MAX30101 threshold: ");
+    Serial.println(response);
+    return false;
+  }
+  delay(45);
+
+  // Read response: should be 0x00 for success
+  Wire.requestFrom(BIOSENSOR_ADDRESS, 1);
+  response = Wire.read();
+  if (response != 0) {
+    Serial.print("Failed to enable MAX30101 , response: ");
+    Serial.println(response, HEX);
+    return false;
+  }
+
+  // Enable input FIFO: Send command 0xAA 0x44 0x04 0x01 0x01
+  Wire.beginTransmission(BIOSENSOR_ADDRESS);
+  Wire.write(0x44);  // Command family
+  Wire.write(0x04);  // Command index
+  Wire.write(0x01);  // Enable
+  Wire.write(0x01);  // Parameter
+  response = Wire.endTransmission();
+
+  if (response != 0) {
+    Serial.print("I2C transmission error enabling host accelerometer FIFO: ");
+    Serial.println(response);
+    return false;
+  }
+  delay(45);
+
+  // Read response: should be 0x00 for success
+  Wire.requestFrom(BIOSENSOR_ADDRESS, 1);
+  response = Wire.read();
+  if (response != 0) {
+    Serial.print("Failed to enable input FIFO for host accelerometer , response: ");
+    Serial.println(response, HEX);
+    return false;
+  }
+
+  // Enable MaximFast algorithm: Send command 0xAA 0x52 0x02 0x01
+  Wire.beginTransmission(BIOSENSOR_ADDRESS);
+  Wire.write(0x52);  // Command family
+  Wire.write(0x02);  // Command index
+  Wire.write(0x01);  // Enable
+  response = Wire.endTransmission();
+
+  if (response != 0) {
+    Serial.print("I2C transmission error enabling MaximFast algorithm: ");
+    Serial.println(response);
+    return false;
+  }
+  delay(45);
+
+  // Read response: should be 0x00 for success
+  Wire.requestFrom(BIOSENSOR_ADDRESS, 1);
+  response = Wire.read();
+  if (response != 0) {
+    Serial.print("Failed to enable MaximFast algorithm mode , response: ");
+    Serial.println(response, HEX);
+    return false;
+  }
+
+  return true;
+}
+
+//**************************************************************************************************************
+// Function to send accelerometer data to biohub
+uint8_t sendAccelerometerDataToBiohub() {
+  // Send command header: 0xAA 0x14 0x00
+  Wire.beginTransmission(BIOSENSOR_ADDRESS);  // 7-bit address
+  Wire.write(0x14);                           // Command family
+  Wire.write(0x00);                           // Command index
+
+  // Send 20 samples (each sample is 6 bytes: 2 bytes each for X, Y, Z)
+  for (size_t i = 0; i < 20; i++) {
+    int16_t x, y, z;
+
+    x = accelBuffX[i];
+    y = accelBuffY[i];
+    z = accelBuffZ[i];
+
+    // Send X value (MSB first)
+    Wire.write((x >> 8) & 0xFF);
+    Wire.write(x & 0xFF);
+
+    // Send Y value (MSB first)
+    Wire.write((y >> 8) & 0xFF);
+    Wire.write(y & 0xFF);
+
+    // Send Z value (MSB first)
+    Wire.write((z >> 8) & 0xFF);
+    Wire.write(z & 0xFF);
+  }
+
+  uint8_t response = Wire.endTransmission();
+  if (response != 0) {
+    Serial.print("I2C error writing accelerometer data to Biohub: ");
+    Serial.println(response);
+  }
+  return response;
 }
 
 //**************************************************************************************************************
@@ -707,20 +868,33 @@ void sendPulseOxBLE() {
 
 void sendBatteryBLE() {
   // Calculate battery level
-  #ifdef VBAT_PIN
-    float vbat = analogRead(VBAT_PIN) * 3.3 / 1024.0 * VBAT_DIVIDER;
-    int batteryLevel = (int)((vbat - VBAT_MIN) / (VBAT_MAX - VBAT_MIN) * 100.0);
-    batteryLevel = constrain(batteryLevel, 0, 100);
-  #else
-    int batteryLevel = 93; // Default if no battery pin
-  #endif
+  int batteryLevel;
+  float vbat = 0.0;
+  
+#ifdef VBAT_PIN
+  // Enable battery voltage reading by setting P0.14 LOW (output sink)
+  digitalWrite(PIN_VBAT_ENABLE, LOW);
+  delayMicroseconds(100);  // Wait for voltage to settle
+  
+  // Read battery voltage
+  vbat = analogRead(PIN_VBAT) * 3.3 / 1024.0 * RESISTANCE_RATIO;
+  batteryLevel = (int)((vbat - VBAT_MIN) / (VBAT_MAX - VBAT_MIN) * 100.0);
+  batteryLevel = constrain(batteryLevel, 0, 100);
+  
+  // Disable voltage divider to save power
+  digitalWrite(PIN_VBAT_ENABLE, HIGH);
+#else
+  batteryLevel = 100;  // Default if no battery pin
+#endif
 
   uint8_t batteryData[1] = { (uint8_t)batteryLevel };
   batteryChar.notify(batteryData, 1);
 
   Serial.print("Battery: ");
   Serial.print(batteryLevel);
-  Serial.println("%");
+  Serial.print("% (");
+  Serial.print(vbat, 2);
+  Serial.println("V)");
 }
 
 // FIXED: Completely rewritten to match app's 14-byte format expectation
@@ -729,9 +903,9 @@ void sendAccelerometerBLE() {
   uint64_t timestamp = getCurrentTimestamp();
 
   // Use latest reading from buffer
-  int16_t x = accelBuffX[intCounter - 1];
-  int16_t y = accelBuffY[intCounter - 1];
-  int16_t z = accelBuffZ[intCounter - 1];
+  int16_t x = accelRawBuffX[0];
+  int16_t y = accelRawBuffY[0];
+  int16_t z = accelRawBuffZ[0];
 
   // Pack into 14-byte array: 8 bytes timestamp + 6 bytes accel data (LSB first)
   uint8_t accelData[14];
