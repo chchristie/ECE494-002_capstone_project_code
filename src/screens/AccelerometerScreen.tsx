@@ -35,6 +35,8 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
   // Update readings from real sensor data
   useEffect(() => {
     if (sensorData.accelerometer && isConnected) {
+      console.log('✅ Accel Screen received data:', sensorData.accelerometer.magnitude, 'g');
+
       const newReading: AccelReading = {
         x: sensorData.accelerometer.x,
         y: sensorData.accelerometer.y,
@@ -45,11 +47,11 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
 
       setReadings(prev => {
         const updated = [...prev.slice(-29), newReading];
-
+        
         // Update max magnitude for scaling
         const maxMag = Math.max(...updated.map(r => r.magnitude));
         setMaxMagnitude(maxMag);
-
+        
         return updated;
       });
     }

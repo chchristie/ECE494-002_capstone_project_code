@@ -542,10 +542,11 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
           }
 
           // Throttle UI updates to max 10 per second (100ms interval)
+          // BUT always update if we have new accelerometer data
           const now = Date.now();
           const timeSinceLastUiUpdate = now - lastUiUpdateRef.current;
 
-          if (timeSinceLastUiUpdate >= UI_UPDATE_THROTTLE) {
+          if (timeSinceLastUiUpdate >= UI_UPDATE_THROTTLE || accelerometerUpdate) {
             lastUiUpdateRef.current = now;
 
             setSensorData(prev => {
@@ -561,15 +562,22 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
 
               const newHeartRate = heartRateUpdate || prev.heartRate;
               const newSpO2 = spO2Update || prev.spO2;
+              const newBattery = batteryUpdate || prev.battery;
 
-              const newAccelerometer = accelerometerUpdate
-                ? accelerometerUpdate
-                : (prev.accelerometer ? { ...prev.accelerometer } : null);
+              // For accelerometer, always create new object if we have an update
+              // This ensures React detects the change
+              const newAccelerometer = accelerometerUpdate 
+                ? { ...accelerometerUpdate }
+                : prev.accelerometer;
+
+              if (accelerometerUpdate) {
+                console.log('🔄 Setting new accelerometer in state:', newAccelerometer?.timestamp);
+              }
 
               return {
                 heartRate: newHeartRate,
                 spO2: newSpO2,
-                battery: batteryUpdate || prev.battery,
+                battery: newBattery,
                 accelerometer: newAccelerometer,
                 lastUpdate: new Date(),
                 dataRate,

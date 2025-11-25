@@ -11,8 +11,8 @@
 //*******************************************************************************************************************
 // ISR
 volatile bool intFlag = false;
-volatile int intCounter = 0;
-volatile int secondCounter = 0; 
+uint16_t intCounter = 0;
+uint32_t secondCounter = 0; 
 #define SLEEP_TIME 10
 
 //*******************************************************************************************************************
@@ -28,6 +28,11 @@ int16_t accelRawBuffZ[20];
 int16_t accelBuffX[20];
 int16_t accelBuffY[20];
 int16_t accelBuffZ[20];
+
+// Stored buffers - updated only when intCounter resets (every 200ms)
+int16_t accelStoredBuffX[20];
+int16_t accelStoredBuffY[20];
+int16_t accelStoredBuffZ[20];
 
 //*******************************************************************************************************************
 // Sparkfun sensor board
@@ -417,6 +422,14 @@ void loop() {
       case 20:
         intCounter = 0;
         secondCounter++;
+        
+        // Copy raw buffer data to stored buffers (updated only every 200ms)
+        for (int i = 0; i < 20; i++) {
+          accelStoredBuffX[i] = accelRawBuffX[i];
+          accelStoredBuffY[i] = accelRawBuffY[i];
+          accelStoredBuffZ[i] = accelRawBuffZ[i];
+        }
+        
         sendAccelerometerDataToBiohub();
         break;
       }
@@ -871,7 +884,7 @@ void sendBatteryBLE() {
   int batteryLevel;
   float vbat = 0.0;
   
-#ifdef VBAT_PIN
+#ifdef PIN_VBAT
   // Enable battery voltage reading by setting P0.14 LOW (output sink)
   digitalWrite(PIN_VBAT_ENABLE, LOW);
   delayMicroseconds(100);  // Wait for voltage to settle
