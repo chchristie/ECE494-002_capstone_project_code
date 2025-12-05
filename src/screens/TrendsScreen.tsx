@@ -52,10 +52,10 @@ function convertReadingsToCSV(readings: any[]): string {
       reading.spO2?.pulseRate ?? '',
       reading.spO2?.signalQuality ?? '',
       reading.battery?.level ?? '',
-      reading.accelerometer?.x?.toFixed(4) ?? '',
-      reading.accelerometer?.y?.toFixed(4) ?? '',
-      reading.accelerometer?.z?.toFixed(4) ?? '',
-      reading.accelerometer?.magnitude?.toFixed(4) ?? '',
+      reading.accelerometer?.x?.toFixed(0) ?? '',
+      reading.accelerometer?.y?.toFixed(0) ?? '',
+      reading.accelerometer?.z?.toFixed(0) ?? '',
+      reading.accelerometer?.magnitude?.toFixed(0) ?? '',
       reading.deviceId || '',
     ];
     csv += row.join(',') + '\n';
@@ -80,6 +80,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [csvData, setCsvData] = useState<ParsedCSVData | null>(null);
+  const [accelData, setAccelData] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -114,6 +115,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
 
         if (!readings || readings.length === 0) {
           setCsvData(null);
+          setAccelData([]);
           return;
         }
 
@@ -121,24 +123,34 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
         const parsed = parseCSV(csvString);
         setCsvData(parsed);
         console.log(`✅ Loaded ${parsed.readings.length} readings (all sessions)`);
+        
+        // For "all sessions" mode, we don't load accelerometer data to keep it simple
+        setAccelData([]);
       } else {
-        // Load specific session
+        // Load specific session - get vitals and accelerometer data
         const readings = await DataManager.getSessionReadings(targetSessionId);
 
         if (!readings || readings.length === 0) {
           setCsvData(null);
+          setAccelData([]);
           return;
         }
 
         const csvString = convertReadingsToCSV(readings);
         const parsed = parseCSV(csvString);
         setCsvData(parsed);
-        console.log(`✅ Loaded ${parsed.readings.length} readings from session`);
+        console.log(`✅ Loaded ${parsed.readings.length} vitals readings from session`);
+
+        // Load downsampled accelerometer data (first sample from every 10th secondCounter = ~20 second intervals)
+        const accelReadings = await DataManager.getAccelerometerReadingsDownsampled(targetSessionId, 10);
+        setAccelData(accelReadings);
+        console.log(`✅ Loaded ${accelReadings.length} accelerometer readings (every 10th secondCounter)`);
       }
     } catch (err) {
       console.error('Failed to load data:', err);
       setError('Failed to load data. Try refreshing.');
       setCsvData(null);
+      setAccelData([]);
     } finally {
       setIsLoading(false);
     }
@@ -179,6 +191,21 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     return csvData.readings.filter(r => r.timestamp >= cutoffTime);
   }, [csvData, selectedRange]);
 
+  // Filter accelerometer data by time range
+  const filteredAccelData = useMemo(() => {
+    if (!accelData || accelData.length === 0) return [];
+
+    const currentRange = TIME_RANGES.find(r => r.value === selectedRange);
+    if (!currentRange || currentRange.value === 'all') {
+      return accelData;
+    }
+
+    const cutoffTime = new Date();
+    cutoffTime.setHours(cutoffTime.getHours() - currentRange.hours);
+
+    return accelData.filter(r => r.timestamp >= cutoffTime);
+  }, [accelData, selectedRange]);
+
   // Prepare chart data (sampled for performance)
   const chartData = useMemo(() => {
     if (!filteredData || filteredData.length === 0) return null;
@@ -199,13 +226,14 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
       timestamp: r.timestamp
     }));
 
-    // Accelerometer magnitude data - NEW FORMAT uses nested objects
-    const accelData = sampled
-      .filter(r => r.accelerometer !== undefined)
-      .map(r => ({ value: r.accelerometer!.magnitude, timestamp: r.timestamp }));
+    // Accelerometer magnitude data - from separate accelerometer table (already downsampled)
+    const accelChartData = filteredAccelData.map(r => ({
+      value: r.magnitude,
+      timestamp: r.timestamp
+    }));
 
-    return { hrData, spO2Data, accelData };
-  }, [filteredData]);
+    return { hrData, spO2Data, accelData: accelChartData };
+  }, [filteredData, filteredAccelData]);
 
   // Calculate statistics for filtered data
   const stats = useMemo(() => {
@@ -214,7 +242,9 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     // Filter out zero values for HR and SpO2 (0 is not a valid physiological reading)
     const hrValues = filteredData.filter(r => r.heartRate !== undefined && r.heartRate.bpm > 0).map(r => r.heartRate!.bpm);
     const spO2Values = filteredData.filter(r => r.spO2 !== undefined && r.spO2.percent > 0).map(r => r.spO2!.percent);
-    const accelValues = filteredData.filter(r => r.accelerometer !== undefined).map(r => r.accelerometer!.magnitude);
+    
+    // Use accelerometer data from separate table
+    const accelValues = filteredAccelData.map(r => r.magnitude);
 
     const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
     const max = (arr: number[]) => arr.length > 0 ? Math.max(...arr) : 0;
@@ -240,7 +270,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
         count: accelValues.length,
       },
     };
-  }, [filteredData]);
+  }, [filteredData, filteredAccelData]);
 
   // Render session selector
   const renderSessionSelector = () => {
@@ -333,8 +363,8 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
 
         <View style={styles.statCard}>
           <MaterialIcon name="vibration" size={20} color="#2ecc71" />
-          <Text style={styles.statValue}>{stats.accel.avg.toFixed(1)}</Text>
-          <Text style={styles.statLabel}>Avg Accel (g)</Text>
+          <Text style={styles.statValue}>{stats.accel.avg.toFixed(0)}</Text>
+          <Text style={styles.statLabel}>Avg Accel (milli-g)</Text>
         </View>
       </View>
     );
@@ -402,11 +432,11 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
             width={screenWidth - 32}
             height={250}
             color="#2ecc71"
-            title="📈 Accelerometer Magnitude (g)"
+            title="📈 Accelerometer Magnitude (milli-g)"
             yMin={accelMin}
             yMax={accelMax}
             showXAxisTime={true}
-            yAxisDecimalPlaces={3}
+            yAxisDecimalPlaces={0}
           />
         )}
       </View>
@@ -468,7 +498,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
         {isLoading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>Loading data from CSV...</Text>
+            <Text style={styles.loadingText}>Loading analytics...</Text>
           </View>
         ) : error ? (
           <View style={styles.errorContainer}>

@@ -19,7 +19,6 @@ interface AccelReading {
   y: number;
   z: number;
   magnitude: number;
-  timestamp: number;
 }
 
 type AccelerometerScreenProps = SimpleNavigationProps & {
@@ -35,14 +34,13 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
   // Update readings from real sensor data
   useEffect(() => {
     if (sensorData.accelerometer && isConnected) {
-      console.log('✅ Accel Screen received data:', sensorData.accelerometer.magnitude, 'g');
+      console.log('✅ Accel Screen received data:', sensorData.accelerometer.magnitude, 'milli-g');
 
       const newReading: AccelReading = {
         x: sensorData.accelerometer.x,
         y: sensorData.accelerometer.y,
         z: sensorData.accelerometer.z,
         magnitude: sensorData.accelerometer.magnitude,
-        timestamp: sensorData.accelerometer.timestamp.getTime(),
       };
 
       setReadings(prev => {
@@ -72,11 +70,10 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
           const magnitude = Math.sqrt(x * x + y * y + z * z);
 
           const newReading: AccelReading = {
-            x: parseFloat(x.toFixed(3)),
-            y: parseFloat(y.toFixed(3)),
-            z: parseFloat(z.toFixed(3)),
-            magnitude: parseFloat(magnitude.toFixed(3)),
-            timestamp: Date.now(),
+            x: parseFloat(x.toFixed(0)),
+            y: parseFloat(y.toFixed(0)),
+            z: parseFloat(z.toFixed(0)),
+            magnitude: parseFloat(magnitude.toFixed(0)),
           };
 
           setReadings(prev => {
@@ -127,7 +124,7 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
 
             return (
               <View
-                key={`${reading.timestamp}-${index}`}
+                key={`accel-bar-${index}`}
                 style={[
                   styles.bar,
                   {
@@ -180,9 +177,9 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
                   <Text style={[styles.axisLabel, { color: '#FF6B6B' }]}>X</Text>
                 </View>
                 <Text style={[styles.axisValue, { color: '#FF6B6B' }]}>
-                  {currentReading.x.toFixed(3)}
+                  {currentReading.x.toFixed(0)}
                 </Text>
-                <Text style={styles.axisUnit}>g</Text>
+                <Text style={styles.axisUnit}>milli-g</Text>
               </View>
 
               {/* Y Axis */}
@@ -191,9 +188,9 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
                   <Text style={[styles.axisLabel, { color: '#4ECDC4' }]}>Y</Text>
                 </View>
                 <Text style={[styles.axisValue, { color: '#4ECDC4' }]}>
-                  {currentReading.y.toFixed(3)}
+                  {currentReading.y.toFixed(0)}
                 </Text>
-                <Text style={styles.axisUnit}>g</Text>
+                <Text style={styles.axisUnit}>milli-g</Text>
               </View>
 
               {/* Z Axis */}
@@ -202,9 +199,9 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
                   <Text style={[styles.axisLabel, { color: '#95E1D3' }]}>Z</Text>
                 </View>
                 <Text style={[styles.axisValue, { color: '#95E1D3' }]}>
-                  {currentReading.z.toFixed(3)}
+                  {currentReading.z.toFixed(0)}
                 </Text>
-                <Text style={styles.axisUnit}>g</Text>
+                <Text style={styles.axisUnit}>milli-g</Text>
               </View>
             </View>
 
@@ -212,7 +209,7 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
             <View style={styles.magnitudeContainer}>
               <Text style={styles.magnitudeLabel}>Total Magnitude</Text>
               <Text style={styles.magnitudeValue}>
-                {currentReading.magnitude.toFixed(3)} g
+                {currentReading.magnitude.toFixed(0)} milli-g
               </Text>
               <View style={styles.magnitudeBar}>
                 <View
@@ -251,27 +248,27 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
             <View style={styles.statsGrid}>
               <View style={styles.statCard}>
                 <Text style={styles.statLabel}>Avg Magnitude</Text>
-                <Text style={styles.statValue}>{stats.avgMag.toFixed(3)} g</Text>
+                <Text style={styles.statValue}>{stats.avgMag.toFixed(0)} mG</Text>
               </View>
 
               <View style={styles.statCard}>
                 <Text style={styles.statLabel}>Peak Magnitude</Text>
-                <Text style={styles.statValue}>{stats.peakMag.toFixed(3)} g</Text>
+                <Text style={styles.statValue}>{stats.peakMag.toFixed(0)} mG</Text>
               </View>
 
               <View style={styles.statCard}>
                 <Text style={styles.statLabel}>Avg X-Axis</Text>
-                <Text style={styles.statValue}>{stats.avgX.toFixed(3)} g</Text>
+                <Text style={styles.statValue}>{stats.avgX.toFixed(0)} mG</Text>
               </View>
 
               <View style={styles.statCard}>
                 <Text style={styles.statLabel}>Avg Y-Axis</Text>
-                <Text style={styles.statValue}>{stats.avgY.toFixed(3)} g</Text>
+                <Text style={styles.statValue}>{stats.avgY.toFixed(0)} mG</Text>
               </View>
 
               <View style={styles.statCard}>
                 <Text style={styles.statLabel}>Avg Z-Axis</Text>
-                <Text style={styles.statValue}>{stats.avgZ.toFixed(3)} g</Text>
+                <Text style={styles.statValue}>{stats.avgZ.toFixed(0)} mG</Text>
               </View>
 
               <View style={styles.statCard}>

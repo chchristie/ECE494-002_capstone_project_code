@@ -7,7 +7,6 @@ export const STANDARD_SERVICES = {
   DEVICE_INFORMATION: '180A',
   BATTERY_SERVICE: '180F',
   PULSE_OXIMETER: '1822', // Standard SpO2 service
-  MOTION_SERVICE: '1819', // Standard Motion/Movement service
 } as const;
 
 // Standard BLE Characteristic UUIDs (16-bit format)
@@ -31,10 +30,6 @@ export const STANDARD_CHARACTERISTICS = {
   PLX_SPOT_CHECK_MEASUREMENT: '2A5E',
   PLX_CONTINUOUS_MEASUREMENT: '2A5F',
   PLX_FEATURES: '2A60',
-
-  // Motion/Accelerometer Service
-  ACCELEROMETER: '2A5C', // Generic sensor characteristic
-  SENSOR_LOCATION: '2A5D',
 } as const;
 
 // SeedStudio Custom Service UUIDs (corrected based on documentation)
@@ -42,11 +37,9 @@ export const SEEDSTUDIO_SERVICES = {
   // Primary Seeed Studio service pattern (from MR60BHA1/MR60BHA2 examples)
   RADAR_SERVICE: '19B10000-E8F2-537E-4F6C-D104768A1214',
 
-  // Nordic UART Service (common fallback for Nordic devices)
+  // Nordic UART Service / Custom Accelerometer Service (buffered data via UART_TX)
   NORDIC_UART: '6E400001-B5A3-F393-E0A9-E50E24DCCA9E',
-
-  // Custom Accelerometer Service (from Arduino code)
-  ACCELEROMETER_SERVICE: '85B49381-5840-0CBE-D14D-0000-0000-00C4-52',
+  CUSTOM_ACCEL_SERVICE: '6E400001-B5A3-F393-E0A9-E50E24DCCA9E', // Same as NORDIC_UART
 
   // Alternative short UUID patterns (if device uses these)
   SENSOR_DATA: 'FF10',
@@ -58,8 +51,11 @@ export const SEEDSTUDIO_CHARACTERISTICS = {
   SENSOR_DATA: '19B10001-E8F2-537E-4F6C-D104768A1214',
 
   // Nordic UART characteristics (common on nRF52840 devices)
-  UART_TX: '6E400002-B5A3-F393-E0A9-E50E24DCCA9E', // Device to phone
+  UART_TX: '6E400002-B5A3-F393-E0A9-E50E24DCCA9E', // Device to phone (accelerometer)
   UART_RX: '6E400003-B5A3-F393-E0A9-E50E24DCCA9E', // Phone to device
+  
+  // Miscellaneous data characteristic (status, confidence, voltage)
+  MISC_DATA: '6E400004-B5A3-F393-E0A9-E50E24DCCA9E', // Device to phone
 
   // Time synchronization characteristic (phone writes timestamp to Arduino)
   TIME_SYNC: '6E400010-B5A3-F393-E0A9-E50E24DCCA9E',
@@ -68,14 +64,6 @@ export const SEEDSTUDIO_CHARACTERISTICS = {
   SPO2_DATA: 'FF11',
   SENSOR_CONFIG: 'FF21',
   CALIBRATION: 'FF22',
-
-  // Accelerometer custom characteristic (if not using standard)
-  ACCELEROMETER_DATA: 'FF12',
-
-  // Custom Accelerometer X, Y, Z characteristics (from Arduino code)
-  ACCEL_X: '85B49381-5840-0CBE-D14D-0030-0000-00C4-52',
-  ACCEL_Y: '85B49381-5840-0CBE-D14D-0060-0000-00C4-52',
-  ACCEL_Z: '85B49381-5840-0CBE-D14D-0090-0000-00C4-52',
 } as const;
 
 // Complete service map for Nordic device detection
@@ -121,28 +109,32 @@ export interface SpO2Data {
 
 export interface BatteryData {
   level: number;              // 0-100%
+  voltage?: number;           // Battery voltage (V)
   isCharging?: boolean;
   timestamp: Date;
   deviceId: string;
 }
 
-export interface AccelerometerData {
-  // Raw sensor values (int16 from Arduino)
-  raw_x: number;              // Raw X-axis value (-32768 to +32767)
-  raw_y: number;              // Raw Y-axis value (-32768 to +32767)
-  raw_z: number;              // Raw Z-axis value (-32768 to +32767)
+export interface MiscData {
+  status: number;             // 0-3 (0,1=No Contact, 2=Object, 3=Skin)
+  confidence: number;         // 0-100%
+  voltage: number;            // Battery voltage (V)
+  charging: boolean;          // true if device is charging
+  timestamp: Date;
+  deviceId: string;
+}
 
-  // Calculated values (app-side processing)
+export interface AccelerometerData {
   x: number;                  // X-axis acceleration (m/s² or g)
   y: number;                  // Y-axis acceleration
   z: number;                  // Z-axis acceleration
   magnitude: number;          // Vector magnitude
+}
 
-  // Metadata
-  timestamp: Date;
-  deviceId: string;
-  sampleRate?: number;        // Samples per second
-  unit: 'g' | 'ms2';         // Gravity units or m/s²
+// Buffered accelerometer data - includes secondCounter and sample index
+export interface BufferedAccelerometerData extends AccelerometerData {
+  secondCounter: number;      // Counter from Arduino to group 20 samples
+  sampleIndex: number;        // Index within the buffer (0-19)
 }
 
 export interface DeviceInformation {
@@ -179,20 +171,6 @@ export const isValidSpO2Data = (data: unknown): data is SpO2Data => {
     data !== null &&
     typeof (data as SpO2Data).spO2 === 'number' &&
     typeof (data as SpO2Data).pulseRate === 'number'
-  );
-};
-
-export const isValidAccelerometerData = (data: unknown): data is AccelerometerData => {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    typeof (data as AccelerometerData).x === 'number' &&
-    typeof (data as AccelerometerData).y === 'number' &&
-    typeof (data as AccelerometerData).z === 'number' &&
-    typeof (data as AccelerometerData).magnitude === 'number' &&
-    !isNaN((data as AccelerometerData).x) &&
-    !isNaN((data as AccelerometerData).y) &&
-    !isNaN((data as AccelerometerData).z)
   );
 };
 
@@ -356,7 +334,6 @@ export class NordicDataParser {
     if (data.length < 5) return null;  // Need at least 5 bytes: Flags(1) + SpO2(2) + HR(2)
     
     try {
-      console.log('🩺 [Parser] Raw PLX Continuous buffer:', Array.from(data));
       
       // BLE PLX Continuous Measurement format:
       // byte[0] = Flags (0x00)
@@ -370,9 +347,7 @@ export class NordicDataParser {
       
       // Extract Pulse Rate (little endian 16-bit)
       const pulseRate = data[3] | (data[4] << 8);
-      
-      console.log('🩺 [Parser] Parsed - SpO2:', spO2, '% | PulseRate:', pulseRate, 'bpm');
-      
+            
       const result: SpO2Data = {
         spO2,
         pulseRate,
@@ -400,75 +375,79 @@ export class NordicDataParser {
     };
   }
 
-  // Parse accelerometer data (multiple formats supported)
-  static parseAccelerometerData(data: Uint8Array, deviceId: string): AccelerometerData | null {
-    if (data.length < 6) return null;
+  // Parse miscellaneous data (status, confidence, voltage)
+  static parseMiscData(data: Uint8Array, deviceId: string): MiscData | null {
+    if (data.length < 5) return null;
+
+    const status = data[0];        // 0-3 (0,1=No Contact, 2=Object, 3=Skin)
+    const confidence = data[1];    // 0-100%
+    
+    // Reconstruct 16-bit voltage from low and high bytes (little-endian)
+    const voltageLow = data[2];
+    const voltageHigh = data[3];
+    const voltageScaled = voltageLow | (voltageHigh << 8);
+    
+    // Convert voltage back from scaled value (0-65535 represents 0-5V)
+    const voltage = voltageScaled / 13107.0; // 65535/5 = 13107
+    
+    // Parse charging status (1 = charging, 0 = not charging)
+    const charging = data[4] === 1;
+
+    return {
+      status,
+      confidence,
+      voltage,
+      charging,
+      timestamp: new Date(),
+      deviceId,
+    };
+  }
+
+  // Parse buffered accelerometer data - extracts all 20 samples from 124-byte packet
+  static parseBufferedAccelerometerData(data: Uint8Array, deviceId: string): BufferedAccelerometerData[] | null {
+    // Buffered format: 124 bytes
+    // Bytes 0-3: secondCounter (uint32_t)
+    // Bytes 4-43: accelStoredBuffX[20] (20 * int16_t = 40 bytes)
+    // Bytes 44-83: accelStoredBuffY[20] (40 bytes)
+    // Bytes 84-123: accelStoredBuffZ[20] (40 bytes)
+    
+    if (data.length !== 124) {
+      console.warn(`⚠️ Expected 124 bytes for buffered accel data, got ${data.length}`);
+      if (data.length === 20) {
+        console.warn('💡 Hint: MTU size may be too small. The app should request MTU=512 when connecting.');
+      }
+      return null;
+    }
 
     try {
-      let timestamp: Date;
-      let dataOffset = 0;
+      // Extract secondCounter (4 bytes, little-endian)
+      const secondCounter = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+      
+      const samples: BufferedAccelerometerData[] = [];
 
-      // Check for timestamped format: 14 bytes = 8 (timestamp) + 6 (accel data)
-      if (data.length >= 14) {
-        // Extract 64-bit timestamp (little-endian) - use safe integer check
-        let timestampMs = 0;
-        for (let i = 0; i < 8; i++) {
-          timestampMs += data[i] * Math.pow(2, i * 8);
-        }
+      // Extract all 20 samples
+      for (let i = 0; i < 20; i++) {
+        // Extract X, Y, Z for this sample
+        const xG = this.parseInt16LE(data, 4 + i * 2);   // accelStoredBuffX[i]
+        const yG = this.parseInt16LE(data, 44 + i * 2);  // accelStoredBuffY[i]
+        const zG = this.parseInt16LE(data, 84 + i * 2);  // accelStoredBuffZ[i]
 
-        const minTimestamp = new Date('2020-01-01').getTime();
-        const maxTimestamp = new Date('2030-01-01').getTime();
+        // Calculate magnitude (rounded to integer)
+        const magnitude = Math.round(Math.sqrt(xG * xG + yG * yG + zG * zG));
 
-        if (timestampMs > minTimestamp && timestampMs < maxTimestamp && Number.isSafeInteger(timestampMs)) {
-          timestamp = new Date(timestampMs);
-        } else {
-          timestamp = new Date();
-        }
-
-        dataOffset = 8; // Accel data starts at byte 8
-      } else {
-        // Legacy format: 6 bytes without timestamp
-        timestamp = new Date();
-        dataOffset = 0;
+        samples.push({
+          x: xG,
+          y: yG,
+          z: zG,
+          magnitude,
+          secondCounter,
+          sampleIndex: i,
+        });
       }
 
-      // Parse accelerometer values (3x 16-bit signed integers, LSB first)
-      const raw_x = this.parseInt16LE(data, dataOffset);
-      const raw_y = this.parseInt16LE(data, dataOffset + 2);
-      const raw_z = this.parseInt16LE(data, dataOffset + 4);
-
-      // Convert from raw sensor values to g (gravity units)
-      // Scale factor for ±2g range: divide by 16384
-      const scale = 16384;
-      const xG = raw_x / scale;
-      const yG = raw_y / scale;
-      const zG = raw_z / scale;
-
-      // Calculate magnitude (vector length)
-      const magnitude = Math.sqrt(xG * xG + yG * yG + zG * zG);
-
-      const result: AccelerometerData = {
-        // Raw values (as received from Arduino)
-        raw_x,
-        raw_y,
-        raw_z,
-
-        // Calculated values (app-side processing)
-        x: xG,
-        y: yG,
-        z: zG,
-        magnitude,
-
-        // Metadata
-        timestamp,  // Use Arduino's timestamp
-        deviceId,
-        sampleRate: 1, // 1 Hz from Arduino
-        unit: 'g',
-      };
-
-      return isValidAccelerometerData(result) ? result : null;
+      return samples;
     } catch (error) {
-      console.error('Accelerometer parsing error:', error);
+      console.error('Buffered accelerometer parsing error:', error);
       return null;
     }
   }
@@ -557,5 +536,4 @@ export default {
   isNordicDevice,
   isValidHeartRateData,
   isValidSpO2Data,
-  isValidAccelerometerData,
 };

@@ -22,9 +22,6 @@ LSM6DS3 myIMU(I2C_MODE, IMU_ADDRESS);
 #define IMU_BUFFER_SIZE 20
 #define IMU_SAMPLING_RATE 100
 
-int16_t accelRawBuffX[20];
-int16_t accelRawBuffY[20];
-int16_t accelRawBuffZ[20];
 int16_t accelBuffX[20];
 int16_t accelBuffY[20];
 int16_t accelBuffZ[20];
@@ -33,6 +30,9 @@ int16_t accelBuffZ[20];
 int16_t accelStoredBuffX[20];
 int16_t accelStoredBuffY[20];
 int16_t accelStoredBuffZ[20];
+
+// BLE transmission buffer (prepared on interrupt 13, sent on interrupt 14)
+uint8_t accelBLEBuffer[124];
 
 //*******************************************************************************************************************
 // Sparkfun sensor board
@@ -45,13 +45,12 @@ int mfioPin = 8;
 #define BIOSENSOR_WIDTH 411 // Possible widths: 69, 118, 215, 411us
 #define BIOSENSOR_SAMPLES 100 // Possible samples: 50, 100, 200, 400, 800, 1000, 1600, 3200 samples/second
 
-int past_heartrate = 0;
-uint8_t biosensorErrorCount = 0; // Track consecutive errors
-#define MAX_BIOSENSOR_ERRORS 5 // Reset biosensor after 5 consecutive errors
+uint8_t biosensorErrorCount = 0; // Track consecutive biohub errors
+#define MAX_BIOSENSOR_ERRORS 10 // Reset biosensor after 10 consecutive errors
 
 SparkFun_Bio_Sensor_Hub bioHub(resPin, mfioPin);
 bioData biohubData;
-uint8_t biohubFifoData[6];
+uint8_t biohubFifoData[6]; // Stores data output from biohub FIFO recieved over I2C
 
 //*******************************************************************************************************************
 // Battery monitoring
@@ -60,8 +59,12 @@ uint8_t biohubFifoData[6];
 #define PIN_HICHG         (22)  // D22/P0_13 charge current setting LOW:100mA HIGH:50mA
 #define PIN_CHG           (23)  // D23 charge indicator LOW:charge HIGH:no charge
 #define RESISTANCE_RATIO  2.961
-#define VBAT_MIN          3.0
-#define VBAT_MAX          3.7
+#define VBAT_MIN          3.3
+#define VBAT_MAX          4.2
+
+// Battery data shared between interrupt 12 and 13
+float vbat = 0.0;
+int batteryLevel = 0;
 
 //*******************************************************************************************************************
 // Bluetooth Services and Characteristics
@@ -81,17 +84,10 @@ BLEService pulseOxService = BLEService(0x1822);
 BLECharacteristic pulseOxChar = BLECharacteristic(0x2A5F);  // PLX Continuous Measurement
 BLECharacteristic pulseOxFeatures = BLECharacteristic(0x2A60);  // PLX Features
 
-
-// FIXED: Motion Service (0x1819) - SINGLE characteristic (app expects this!)
-BLEService motionService = BLEService(0x1819);
-BLECharacteristic accelChar = BLECharacteristic(0x2A5C);  // Standard accelerometer characteristic
-
-// Time Sync Characteristic (custom UUID for receiving timestamp from phone)
-BLECharacteristic timeSyncChar = BLECharacteristic("6E400010-B5A3-F393-E0A9-E50E24DCCA9E");
-
-// Timestamp tracking
-uint64_t baseTimestampMs = 0; // Unix milliseconds from phone at sync time
-uint32_t baseMillis = 0; // millis() value when time was synced
+// Custom Accelerometer Service
+BLEService customService = BLEService("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+BLECharacteristic accelChar = BLECharacteristic("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
+BLECharacteristic miscDataChar = BLECharacteristic("6E400004-B5A3-F393-E0A9-E50E24DCCA9E");
 
 // Tracking for comparison
 unsigned long connectionStartTime = 0;
@@ -120,6 +116,15 @@ Serial.begin(115200);
   initRTC(32768 * SLEEP_TIME / 1000);
   Serial.println("RTC initialized");
 
+  // Battery monitoring pin configuration
+  pinMode(PIN_VBAT, INPUT);
+  pinMode(PIN_VBAT_ENABLE, OUTPUT);
+  pinMode(PIN_HICHG, OUTPUT);
+  pinMode(PIN_CHG, INPUT);  
+  digitalWrite(PIN_VBAT_ENABLE, HIGH);  // Start with divider disabled to save power
+  digitalWrite(PIN_HICHG, LOW); // 100 mA charge current
+  Serial.println("Battery monitoring pins configured");
+
   //*************************************************************************************
   // Configure accelerometer
   myIMU.settings.accelEnabled = 1;
@@ -147,8 +152,7 @@ Serial.begin(115200);
     Serial.println("Biosensor started!");
   } 
   else {
-    Serial.println("Failed to initialize biosensor - stopping");
-    while (1);
+    Serial.println("Failed to initialize biosensor - continuing");
   }
 
   Serial.println("Configuring Biosensor....");
@@ -199,6 +203,7 @@ Serial.begin(115200);
   Bluefruit.begin();
   Bluefruit.setTxPower(4);
   Bluefruit.setName("HeartRate_SpO2_Accel");
+  Bluefruit.autoConnLed(false);
 
   // Set low power mode to prevent deep sleep that kills BLE connection
   sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
@@ -256,24 +261,25 @@ Serial.begin(115200);
 
   Serial.println("Pulse Oximeter Service (0x1822) started");
 
-  // FIXED: Motion Service (0x1819) - Single characteristic with 14-byte format
-  motionService.begin();
+  // Custom Accelerometer Service - Buffered data transmission
+  customService.begin();
 
   accelChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
   accelChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-  accelChar.setFixedLen(14);  // 8 bytes timestamp + 6 bytes accel data
+  accelChar.setFixedLen(124);  // 4 bytes secondCounter + 120 bytes buffered accel data (3 * 20 * 2)
   accelChar.setCccdWriteCallback(cccd_callback);
   accelChar.begin();
 
-  Serial.println("Motion Service (0x1819) started");
+  Serial.println("Custom Accelerometer Service started");
 
-  // Time Sync Characteristic (writable - phone sends timestamp here)
-  timeSyncChar.setProperties(CHR_PROPS_WRITE);
-  timeSyncChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
-  timeSyncChar.setFixedLen(8); // 8 bytes for 64-bit timestamp
-  timeSyncChar.setWriteCallback(timesync_callback);
-  timeSyncChar.begin();
-  Serial.println("Time Sync Characteristic started");  // FIXED: Typo corrected
+  // Miscellaneous Data Characteristic (status, confidence, voltage, charging)
+  miscDataChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+  miscDataChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  miscDataChar.setFixedLen(5);  // 5 bytes: status, confidence, voltage_low, voltage_high, charging
+  miscDataChar.setCccdWriteCallback(cccd_callback);
+  miscDataChar.begin();
+
+  Serial.println("Miscellaneous Data Characteristic started");
 
   // Advertising Setup
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
@@ -283,12 +289,11 @@ Serial.begin(115200);
   Bluefruit.Advertising.addService(hrmService); // 0x180D
   Bluefruit.Advertising.addService(batteryService); // 0x180F
   Bluefruit.Advertising.addService(pulseOxService); // 0x1822
-  Bluefruit.Advertising.addService(motionService); // 0x1819
 
   Bluefruit.Advertising.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 244);
+  Bluefruit.Advertising.setInterval(32, 3200);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
 
@@ -344,9 +349,6 @@ void loop() {
     int16_t accelYRaw = myIMU.readRawAccelY();
     int16_t accelZRaw = myIMU.readRawAccelZ();
 
-    accelRawBuffX[intCounter-1] = accelXRaw;
-    accelRawBuffY[intCounter-1] = accelYRaw;
-    accelRawBuffZ[intCounter-1] = accelZRaw;
     accelBuffX[intCounter-1] = accelXRaw * 61 / 1000;
     accelBuffY[intCounter-1] = accelYRaw * 61 / 1000;
     accelBuffZ[intCounter-1] = accelZRaw * 61 / 1000;
@@ -360,16 +362,7 @@ void loop() {
         biohubStatus = readBiohubStatus();
         if (biohubStatus == 1) {
           biosensorErrorCount++;
-          Serial.print("Biosensor I2C error (");
-          Serial.print(biosensorErrorCount);
-          Serial.println("/5)");
-
-          // Reset biosensor if too many errors
-          if (biosensorErrorCount >= MAX_BIOSENSOR_ERRORS) {
-            Serial.println("Resetting biosensor due to repeated errors...");
-            resetBiosensor();
-            biosensorErrorCount = 0;
-          }
+          Serial.println("Failed to read biosensor");
         } 
         else {
           biosensorErrorCount = 0; // Reset error counter on success
@@ -387,16 +380,11 @@ void loop() {
       case 8:
         biohubStatus = readBiohubData();
         if (biohubStatus == 1) {
-          Serial.println("Failed to read biosensor data - will retry");
+          biosensorErrorCount++;
+          Serial.println("Failed to read biosensor");
         } 
         else {
-          // Successfully read data
-          //Serial.print("HR: ");
-          //Serial.print(biohubData.heartRate);
-          //Serial.print(" | SpO2: ");
-          //Serial.print(biohubData.oxygen);
-          //Serial.print(" | Status: ");
-          //Serial.println(biohubData.status);
+          biosensorErrorCount = 0; // Reset error counter on success
         }
         break;
       case 10:
@@ -411,13 +399,19 @@ void loop() {
         break;
       case 12:
         if (Bluefruit.connected() && secondCounter % 10 == 0) {
-          sendBatteryBLE();
+          readBatteryAndSendMisc();
         }
         break;
       case 13:
         if (Bluefruit.connected() && secondCounter % 10 == 0) {
-          sendAccelerometerBLE();
+          sendBatteryBLE();
         }
+        break;
+      case 14:
+        prepareAccelerometerBuffer();
+        break;
+      case 15:
+        sendAccelerometerBLE();
         break;                
       case 20:
         intCounter = 0;
@@ -425,9 +419,9 @@ void loop() {
         
         // Copy raw buffer data to stored buffers (updated only every 200ms)
         for (int i = 0; i < 20; i++) {
-          accelStoredBuffX[i] = accelRawBuffX[i];
-          accelStoredBuffY[i] = accelRawBuffY[i];
-          accelStoredBuffZ[i] = accelRawBuffZ[i];
+          accelStoredBuffX[i] = accelBuffX[i];
+          accelStoredBuffY[i] = accelBuffY[i];
+          accelStoredBuffZ[i] = accelBuffZ[i];
         }
         
         sendAccelerometerDataToBiohub();
@@ -437,6 +431,31 @@ void loop() {
     if (intFlag == true) {
       Serial.print("Processing took too long at step: ");
       Serial.println(intCounter);
+    }
+    if (biosensorErrorCount > MAX_BIOSENSOR_ERRORS) {
+      Serial.println("Too many biosensor errors - restarting biosensor...");
+
+      // Sequence to reset biosensor
+      pinMode(resPin, OUTPUT);
+      pinMode(mfioPin, OUTPUT);
+      digitalWrite(mfioPin, HIGH);
+      digitalWrite(resPin, LOW);
+      delay(10);
+      digitalWrite(resPin, HIGH);
+      delay(1000);
+      pinMode(mfioPin, INPUT_PULLUP);
+      requestBiohubStatus();
+      delay(2);
+      if (readBiohubStatus() == 0) {
+        Serial.println("Biosensor successfully reset - resuming program.");
+        Serial.println("Loading biosensor buffer with initial data...");
+        delay(4000);
+      }
+      else {
+        Serial.println("Failed to restart biosensor - restarting system...");
+        delay(1000); // Give serial time to flush
+        NVIC_SystemReset(); // Restart the board
+      }
     }
   }
 }
@@ -455,29 +474,6 @@ void initWatchdog() {
 
 void feedWatchdog() {
   NRF_WDT->RR[0] = 0x6E524635; // Reload value
-}
-
-//**************************************************************************************************************
-// Reset biosensor after errors
-void resetBiosensor() {
-  // Try to reinitialize the biosensor
-  delay(100);
-
-  if (bioHub.begin() == 0) {
-    Serial.println("Biosensor reinitialized successfully");
-
-    // Reconfigure
-    int error = bioHub.configBpm(MODE_ONE);
-    if (error == 0) {
-      Serial.println("Biosensor reconfigured");
-    }
-
-    bioHub.setSampleRate(BIOSENSOR_SAMPLES);
-    bioHub.setPulseWidth(BIOSENSOR_WIDTH);
-  } 
-  else {
-    Serial.println("Failed to reinitialize biosensor - will retry later");
-  }
 }
 
 //**************************************************************************************************************
@@ -667,8 +663,8 @@ uint8_t sendAccelerometerDataToBiohub() {
 
   uint8_t response = Wire.endTransmission();
   if (response != 0) {
-    Serial.print("I2C error writing accelerometer data to Biohub: ");
-    Serial.println(response);
+    //Serial.print("I2C error writing accelerometer data to Biohub: ");
+    //Serial.println(response);
   }
   return response;
 }
@@ -681,8 +677,8 @@ void requestBiohubStatus() {
   Wire.write(0x00);
   uint8_t error = Wire.endTransmission();
   if (error != 0) {
-    Serial.print("I2C error requesting status: ");
-    Serial.println(error);
+    //Serial.print("I2C error requesting status: ");
+    //Serial.println(error);
   }
 }
 
@@ -735,39 +731,65 @@ uint8_t readBiohubData() {
   return 1; // Error
 }
 
+// Extract 
 void formatBiohubData() {
-biohubData.heartRate = (uint16_t(biohubFifoData[0]) << 8);
-biohubData.heartRate |= (biohubFifoData[1]);
-biohubData.heartRate /= 10;
+  biohubData.heartRate = (uint16_t(biohubFifoData[0]) << 8);
+  biohubData.heartRate |= (biohubFifoData[1]);
+  biohubData.heartRate /= 10;
 
-biohubData.confidence = biohubFifoData[2];
+  biohubData.confidence = biohubFifoData[2];
 
-biohubData.oxygen = uint16_t(biohubFifoData[3]) << 8;
-biohubData.oxygen |= biohubFifoData[4];
-biohubData.oxygen /= 10;
+  biohubData.oxygen = uint16_t(biohubFifoData[3]) << 8;
+  biohubData.oxygen |= biohubFifoData[4];
+  biohubData.oxygen /= 10;
 
-biohubData.status = biohubFifoData[5];
+  biohubData.status = biohubFifoData[5];
 }
 
 //**************************************************************************************************************
 // Bluetooth callback functions
 void connect_callback(uint16_t conn_handle) {
+  Serial.print("【connect_callback】 conn_Handle : ");
+  Serial.println(conn_handle, HEX);
+
+  // Get the reference to current connection
   BLEConnection* connection = Bluefruit.Connection(conn_handle);
+
+  Serial.println();
+  // request PHY changed to 2MB (2Mbit/sec moduration) 1 --> 2
+  Serial.print("Request to change PHY : "); Serial.print(connection->getPHY());
+  connection->requestPHY();
+  delayMicroseconds(1000000);  // delay a bit for all the request to complete
+  Serial.print(" --> "); Serial.println(connection->getPHY());
+
+  // request to update data length  27 --> 251
+  Serial.print("Request to change Data Length : "); Serial.print(connection->getDataLength());
+  connection->requestDataLengthUpdate();
+  delayMicroseconds(1000000);  // delay a bit for all the request to complete
+  Serial.print(" --> "); Serial.println(connection->getDataLength());
+    
+  // request mtu exchange 23 --> 247
+  Serial.print("Request to change MTU : "); Serial.print(connection->getMtu());
+  connection->requestMtuExchange(127);  // max 247
+  delayMicroseconds(1000000);  // delay a bit for all the request to complete
+  Serial.print(" --> "); Serial.println(connection->getMtu());
+
+  // request connection interval  16(20mS) --> 16(20mS)
+  Serial.print("Request to change Interval : "); Serial.print(connection->getConnectionInterval());
+//  connection->requestConnectionParameter(16); // 20mS(in unit of 1.25) default 20mS
+  delayMicroseconds(1000000);  // delay a bit for all the request to complete
+  Serial.print(" --> "); Serial.println(connection->getConnectionInterval());
 
   char central_name[32] = { 0 };
   connection->getPeerName(central_name, sizeof(central_name));
 
-  Serial.print("Connected to ");
+  Serial.print("【connect_callback】 Connected to ");
   Serial.println(central_name);
-  Serial.println("All sensors now transmitting data:");
-  Serial.println("- Heart Rate");
-  Serial.println("- SpO2");
-  Serial.println("- Battery Level");
-  Serial.println("- Accelerometer");
-
-  connectionStartTime = millis();
 
   connectedFlag = true;
+  connectionStartTime = millis(); // Record connection time for timestamp tracking
+  Serial.print("Connection timestamp set at millis: ");
+  Serial.println(connectionStartTime);
 }
 
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
@@ -783,51 +805,6 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
 }
 
 //**************************************************************************************************************
-// Time sync callback - called when phone writes timestamp
-void timesync_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-  if (len == 8) {
-    // Read 8-byte timestamp (little-endian format)
-    baseTimestampMs = 0;
-    for (int i = 0; i < 8; i++) {
-      baseTimestampMs |= ((uint64_t)data[i]) << (i * 8);
-    }
-    baseMillis = millis();
-
-    Serial.print("Time synced! Unix timestamp: ");
-    Serial.print((uint32_t)(baseTimestampMs / 1000));
-    Serial.println(" seconds");
-  } 
-  else {
-    Serial.print("Invalid time sync data length: ");
-    Serial.println(len);
-  }
-}
-
-//**************************************************************************************************************
-// Get current timestamp in milliseconds (handles millis() overflow)
-uint64_t getCurrentTimestamp() {
-  if (baseTimestampMs == 0) {
-    // Not synced yet - return 0 (app will use phone time)
-    return 0;
-  }
-
-  // Handle millis() overflow safely
-  uint32_t currentMillis = millis();
-  uint32_t elapsed;
-
-  if (currentMillis >= baseMillis) {
-    // Normal case: no overflow
-    elapsed = currentMillis - baseMillis;
-  } 
-  else {
-    // Overflow occurred
-    elapsed = (0xFFFFFFFF - baseMillis) + currentMillis + 1;
-  }
-
-  return baseTimestampMs + elapsed;
-}
-
-//**************************************************************************************************************
 // BLE DATA SENDING FUNCTIONS - All sensors working
 
 void sendHrmBLE() {
@@ -837,12 +814,6 @@ void sendHrmBLE() {
 
   uint8_t hrmData[2] = { hrm_flags, hrm_val };
   hrmMeasurement.notify(hrmData, 2);
-
-  Serial.print("HR: ");
-  Serial.print(hrm_val);
-  Serial.print(" BPM (Contact: ");
-  Serial.print((biohubData.status == 3) ? "YES" : "NO");
-  Serial.println(")");
 }
 
 void sendPulseOxBLE() {
@@ -874,16 +845,20 @@ void sendPulseOxBLE() {
 
   pulseOxChar.notify(pulseOx_data, 5);
 
-  Serial.print("SpO2: ");
-  Serial.print(spO2_value);
-  Serial.println("%");
+  // Print combined sensor data with single timestamp
+  unsigned long timestamp = millis() - connectionStartTime;
+  
+  Serial.print("TIMESTAMP_MS: ");
+  Serial.print(timestamp);
+  Serial.print(" | HR: ");
+  Serial.print((uint8_t)biohubData.heartRate);
+  Serial.print(" | SpO2: ");
+  Serial.println(spO2_value);
 }
 
-void sendBatteryBLE() {
+// Interrupt 12: Read battery voltage and send misc data
+void readBatteryAndSendMisc() {
   // Calculate battery level
-  int batteryLevel;
-  float vbat = 0.0;
-  
 #ifdef PIN_VBAT
   // Enable battery voltage reading by setting P0.14 LOW (output sink)
   digitalWrite(PIN_VBAT_ENABLE, LOW);
@@ -897,9 +872,39 @@ void sendBatteryBLE() {
   // Disable voltage divider to save power
   digitalWrite(PIN_VBAT_ENABLE, HIGH);
 #else
+  vbat = 3.7;
   batteryLevel = 100;  // Default if no battery pin
 #endif
 
+  // Read charging status (HIGH = not charging, LOW = charging)
+  uint8_t chargingStatus = digitalRead(PIN_CHG);
+  uint8_t isCharging = (chargingStatus == LOW);
+  
+  // Send miscellaneous data (status, confidence, voltage, charging)
+  // Convert voltage to uint16 (scale to 0-65535, representing 0-5V range for better resolution)
+  uint16_t voltageScaled = (uint16_t)(vbat * 13107.0); // 65535/5 = 13107
+  uint8_t miscData[5] = {
+    biohubData.status,                     // Byte 0: Status (0-3)
+    biohubData.confidence,                 // Byte 1: Confidence (0-100)
+    (uint8_t)(voltageScaled & 0xFF),       // Byte 2: Voltage low byte
+    (uint8_t)((voltageScaled >> 8) & 0xFF),// Byte 3: Voltage high byte
+    isCharging                     // Byte 4: Charging (1=charging, 0=not charging)
+  };
+  miscDataChar.notify(miscData, 5);
+
+  Serial.print("Misc - Status: ");
+  Serial.print(biohubData.status);
+  Serial.print(", Confidence: ");
+  Serial.print(biohubData.confidence);
+  Serial.print("%, Voltage: ");
+  Serial.print(vbat, 2);
+  Serial.print("V, Charging: ");
+  Serial.println(isCharging ? "YES" : "NO");
+}
+
+// Interrupt 13: Send battery level (uses data from interrupt 12)
+void sendBatteryBLE() {
+  // Send battery level (calculated in interrupt 12)
   uint8_t batteryData[1] = { (uint8_t)batteryLevel };
   batteryChar.notify(batteryData, 1);
 
@@ -911,50 +916,47 @@ void sendBatteryBLE() {
 }
 
 // FIXED: Completely rewritten to match app's 14-byte format expectation
-void sendAccelerometerBLE() {
-  // Get current timestamp
-  uint64_t timestamp = getCurrentTimestamp();
+// Prepare accelerometer data buffer (called on interrupt 13)
+// Packs 124 bytes: secondCounter + 20 samples × 3 axes into accelBLEBuffer
+void prepareAccelerometerBuffer() {
+  // Pack into 124-byte array:
+  // Bytes 0-3: secondCounter (uint32_t, little-endian)
+  // Bytes 4-43: accelStoredBuffX[20] (20 * int16_t = 40 bytes, little-endian)
+  // Bytes 44-83: accelStoredBuffY[20] (40 bytes, little-endian)
+  // Bytes 84-123: accelStoredBuffZ[20] (40 bytes, little-endian)
 
-  // Use latest reading from buffer
-  int16_t x = accelRawBuffX[0];
-  int16_t y = accelRawBuffY[0];
-  int16_t z = accelRawBuffZ[0];
+  // Pack secondCounter (4 bytes, little-endian)
+  accelBLEBuffer[0] = secondCounter & 0xFF;
+  accelBLEBuffer[1] = (secondCounter >> 8) & 0xFF;
+  accelBLEBuffer[2] = (secondCounter >> 16) & 0xFF;
+  accelBLEBuffer[3] = (secondCounter >> 24) & 0xFF;
 
-  // Pack into 14-byte array: 8 bytes timestamp + 6 bytes accel data (LSB first)
-  uint8_t accelData[14];
-
-  // Timestamp (8 bytes, little-endian)
-  for (int i = 0; i < 8; i++) {
-    accelData[i] = (timestamp >> (i * 8)) & 0xFF;
+  // Pack accelStoredBuffX[20] (bytes 4-43)
+  for (int i = 0; i < 20; i++) {
+    int16_t val = accelStoredBuffX[i];
+    accelBLEBuffer[4 + i * 2] = val & 0xFF;
+    accelBLEBuffer[4 + i * 2 + 1] = (val >> 8) & 0xFF;
   }
 
-  // Accelerometer data (6 bytes, LSB first - raw values)
-  accelData[8] = x & 0xFF;
-  accelData[9] = (x >> 8) & 0xFF;
-  accelData[10] = y & 0xFF;
-  accelData[11] = (y >> 8) & 0xFF;
-  accelData[12] = z & 0xFF;
-  accelData[13] = (z >> 8) & 0xFF;
+  // Pack accelStoredBuffY[20] (bytes 44-83)
+  for (int i = 0; i < 20; i++) {
+    int16_t val = accelStoredBuffY[i];
+    accelBLEBuffer[44 + i * 2] = val & 0xFF;
+    accelBLEBuffer[44 + i * 2 + 1] = (val >> 8) & 0xFF;
+  }
 
-  // Send via single characteristic
-  accelChar.notify(accelData, 14);
+  // Pack accelStoredBuffZ[20] (bytes 84-123)
+  for (int i = 0; i < 20; i++) {
+    int16_t val = accelStoredBuffZ[i];
+    accelBLEBuffer[84 + i * 2] = val & 0xFF;
+    accelBLEBuffer[84 + i * 2 + 1] = (val >> 8) & 0xFF;
+  }
+}
 
-  // Convert raw values to g for debugging (±2g range = 16384 per g)
-  float xG = x / 16384.0;
-  float yG = y / 16384.0;
-  float zG = z / 16384.0;
-  float magnitude = sqrt(xG * xG + yG * yG + zG * zG);
-
-  Serial.print("Accel: X=");
-  Serial.print(xG, 2);
-  Serial.print("g Y=");
-  Serial.print(yG, 2);
-  Serial.print("g Z=");
-  Serial.print(zG, 2);
-  Serial.print("g Mag=");
-  Serial.print(magnitude, 2);
-  Serial.println("g");
-  Serial.print("Timestamp: ");
-  Serial.println(millis() - connectionStartTime);
+// Send accelerometer data via BLE (called on interrupt 14)
+// Transmits the prepared accelBLEBuffer via BLE notification
+void sendAccelerometerBLE() {
+  // Send via custom characteristic
+  accelChar.notify(accelBLEBuffer, 124);
 }
  

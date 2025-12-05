@@ -1,0 +1,13 @@
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Generated data files
+data/
+*.csv
+
+# IDE files
+.vscode/
+.idea/
+

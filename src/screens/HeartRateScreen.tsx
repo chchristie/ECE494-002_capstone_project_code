@@ -17,7 +17,6 @@ import { HeartRateChart } from '../components/HeartRateChart';
 import { GlassContainer } from '../components/GlassContainer';
 import { NeumorphicCard } from '../components/NeumorphicCard';
 import { Heart3D } from '../components/3DHeart';
-import { ECGWave } from '../components/ECGWave';
 import { SimpleGradientText } from '../components/GradientText';
 import { ConnectionPulse } from '../components/ParticleEffects';
 import { theme } from '../styles/theme';
@@ -26,7 +25,7 @@ import { calculateHRV, interpretHRV, type HRVMetrics } from '../utils/hrvCalcula
 interface HeartRateReading {
   value: number;
   timestamp: number;
-  source: 'manual' | 'bluetooth' | 'simulated';
+  source: 'manual' | 'bluetooth';
 }
 
 interface HeartRateStats {
@@ -103,7 +102,6 @@ const convertToChartData = (readings: HeartRateReading[]) => {
 
 const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) => {
   const [readings, setReadings] = useState<HeartRateReading[]>([]);
-  const [isMonitoring, setIsMonitoring] = useState(false);
   const [stats, setStats] = useState<HeartRateStats>({
     current: 0,
     average: 0,
@@ -121,9 +119,9 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
   const hrValueAnim = useRef(new Animated.Value(0)).current;
   const previousHR = useRef(0);
 
-  // Pulsing heart icon animation when monitoring
+  // Pulsing heart icon animation when connected
   useEffect(() => {
-    if (isMonitoring || isConnected) {
+    if (isConnected) {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -141,7 +139,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
     } else {
       pulseAnim.setValue(1);
     }
-  }, [isMonitoring, isConnected]);
+  }, [isConnected]);
 
   // Animate heart rate value changes
   useEffect(() => {
@@ -165,7 +163,6 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
   // **FIXED: Handle real Nordic sensor data - REPLACES simulation**
   useEffect(() => {
     if (sensorData.heartRate && isConnected) {
-      console.log('✅ HR Screen received data:', sensorData.heartRate.heartRate, 'BPM');
 
       const realReading: HeartRateReading = {
         value: sensorData.heartRate.heartRate,
@@ -193,13 +190,6 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
     }
   }, [rrIntervals]);
 
-  // Auto-stop simulation when real data comes in
-  useEffect(() => {
-    if (isConnected && isMonitoring) {
-      setIsMonitoring(false);
-    }
-  }, [isConnected, isMonitoring]);
-
   // Update stats when readings change
   useEffect(() => {
     try {
@@ -212,96 +202,12 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
     }
   }, [readings]);
 
-  // **FIXED: Simulation only runs when NOT connected to Nordic device**
-  const simulateReading = useCallback(() => {
-    const newReading: HeartRateReading = {
-      value: 70 + Math.floor(Math.random() * 30), // 70-100 BPM
-      timestamp: Date.now(),
-      source: 'simulated',
-    };
-
-    setReadings(prev => [...prev.slice(-19), newReading]);
-  }, []);
-
-  // **FIXED: Start/stop monitoring with proper Nordic device logic**
-  const toggleMonitoring = useCallback(() => {
-    if (isMonitoring) {
-      setIsMonitoring(false);
-    } else {
-      if (!isConnected) {
-        Alert.alert(
-          'No Nordic Device Connected',
-          'Would you like to connect your Nordic heart rate monitor or use simulated data for testing?',
-          [
-            { text: 'Connect Nordic Device', onPress: () => navigation.navigate('Bluetooth') },
-            { text: 'Use Simulation', onPress: () => setIsMonitoring(true) },
-            { text: 'Cancel', style: 'cancel' },
-          ]
-        );
-      } else {
-        // Nordic device is connected - real monitoring will happen automatically
-        Alert.alert(
-          'Nordic Device Connected',
-          'Your Nordic sensor is connected and providing real-time data. No need to start simulation.',
-          [{ text: 'OK' }]
-        );
-      }
-    }
-  }, [isMonitoring, isConnected, navigation]);
-
-  // **FIXED: Monitoring interval only for simulation when NOT connected**
-  useEffect(() => {
-    if (isMonitoring && !isConnected) {
-      const interval = setInterval(() => {
-        try {
-          const newReading: HeartRateReading = {
-            value: 70 + Math.floor(Math.random() * 30), // 70-100 BPM
-            timestamp: Date.now(),
-            source: 'simulated',
-          };
-          setReadings(prev => {
-            // Safely update readings array
-            const updated = [...prev.slice(-19), newReading];
-            return updated;
-          });
-        } catch (error) {
-          console.error('Simulation error:', error);
-        }
-      }, 2000);
-
-      return () => {
-        clearInterval(interval);
-      };
-    }
-  }, [isMonitoring, isConnected]);
-
-  // Clear data
-  const clearData = useCallback(() => {
-    Alert.alert(
-      'Clear Data',
-      'Are you sure you want to clear all heart rate data?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Clear', 
-          style: 'destructive', 
-          onPress: () => {
-            setReadings([]);
-            setIsMonitoring(false);
-          }
-        },
-      ]
-    );
-  }, []);
-
-  // **FIXED: Data source indicator**
+  // **Data source indicator**
   const getDataSourceText = () => {
     if (isConnected) {
       return 'Nordic Sensor Data';
-    } else if (isMonitoring) {
-      return 'Simulated Data';
     } else {
-      return 'No Active Monitoring';
+      return 'No Device Connected';
     }
   };
 
@@ -333,7 +239,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
                   ? [getZoneColor(stats.zone), theme.colors.primary]
                   : [theme.colors.outline]
               }
-              animate={isMonitoring || isConnected}
+              animate={isConnected}
               heartRate={stats.current}
             />
           </View>
@@ -379,19 +285,25 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
           >
             <Text style={styles.zoneText}>{getZoneLabel(stats.zone)}</Text>
           </View>
-        </GlassContainer>
 
-        {/* ECG Wave Visualization */}
-        {stats.current > 0 && (
-          <View style={styles.ecgContainer}>
-            <ECGWave
-              heartRate={stats.current}
-              color={getZoneColor(stats.zone)}
-              height={100}
-              animate={isMonitoring || isConnected}
-            />
-          </View>
-        )}
+          {/* Sensor Status Indicator */}
+          {isConnected && sensorData.miscData && (
+            <>
+              <Text style={styles.sensorStatusText}>
+                {sensorData.miscData.status === 0 || sensorData.miscData.status === 1
+                  ? '🔴 No Contact'
+                  : sensorData.miscData.status === 2
+                  ? '🟡 Object Detected'
+                  : sensorData.miscData.status === 3
+                  ? '🟢 Skin Detected'
+                  : 'Unknown Status'}
+              </Text>
+              <Text style={styles.confidenceText}>
+                Confidence: {sensorData.miscData.confidence}%
+              </Text>
+            </>
+          )}
+        </GlassContainer>
 
         {/* **FIXED: Enhanced Connection Status** */}
         <View style={styles.statusContainer}>
@@ -407,7 +319,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
           {/* Data source indicator */}
           <View style={styles.dataSourceContainer}>
             <Icon 
-              name={isConnected ? 'sensors' : isMonitoring ? 'play-circle-outline' : 'pause-circle-outline'} 
+              name={isConnected ? 'sensors' : 'sensors-off'} 
               size={12} 
               color={theme.colors.onSurfaceVariant} 
             />
@@ -446,24 +358,88 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
           </NeumorphicCard>
         </View>
 
-        {/* SpO2 Display - Only show if data available */}
-        {isConnected && sensorData.spO2 && (
-          <View style={styles.spO2Container}>
-            <View style={styles.spO2Header}>
-              <Icon name="monitor-heart" size={20} color={theme.colors.secondary} />
-              <Text style={styles.spO2Title}>Blood Oxygen</Text>
+        {/* SpO2 and Battery Display */}
+        <View style={styles.vitalPanelsContainer}>
+          {/* SpO2 Panel */}
+          <NeumorphicCard style={styles.vitalPanel}>
+            <View style={styles.vitalHeader}>
+              <Icon name="opacity" size={20} color={theme.colors.secondary} />
+              <Text style={styles.vitalTitle}>Blood Oxygen</Text>
             </View>
-            <View style={styles.spO2Display}>
-              <Text style={styles.spO2Value}>{sensorData.spO2.spO2}</Text>
-              <Text style={styles.spO2Unit}>%</Text>
+            {isConnected && sensorData.spO2 ? (
+              <View style={styles.vitalValueContainer}>
+                <SimpleGradientText
+                  colors={theme.colors.secondaryGradient}
+                  style={styles.vitalValue}
+                >
+                  {sensorData.spO2.spO2}
+                </SimpleGradientText>
+                <Text style={styles.vitalUnit}>%</Text>
+              </View>
+            ) : (
+              <View style={styles.vitalNoData}>
+                <Icon name="hourglass-empty" size={32} color={theme.colors.outline} />
+                <Text style={styles.vitalNoDataText}>
+                  {isConnected ? 'Waiting...' : 'No device'}
+                </Text>
+              </View>
+            )}
+          </NeumorphicCard>
+
+          {/* Battery Panel */}
+          <NeumorphicCard style={styles.vitalPanel}>
+            <View style={styles.vitalHeader}>
+              <Icon 
+                name={
+                  sensorData.miscData?.charging 
+                    ? 'battery-charging-full' 
+                    : sensorData.battery && sensorData.battery.level > 20 
+                    ? 'battery-full' 
+                    : 'battery-alert'
+                } 
+                size={20} 
+                color={
+                  sensorData.miscData?.charging
+                    ? theme.colors.primary
+                    : sensorData.battery && sensorData.battery.level > 20 
+                    ? theme.colors.success 
+                    : theme.colors.error
+                } 
+              />
+              <Text style={styles.vitalTitle}>Battery</Text>
             </View>
-            <View style={styles.spO2Details}>
-              <Text style={styles.spO2DetailText}>
-                Pulse: {sensorData.spO2.pulseRate} BPM
-              </Text>
-            </View>
-          </View>
-        )}
+            {isConnected && sensorData.battery ? (
+              <>
+                <View style={styles.vitalValueContainer}>
+                  <SimpleGradientText
+                    colors={
+                      sensorData.battery.level > 50
+                        ? theme.colors.zoneRestingGradient
+                        : sensorData.battery.level > 20
+                        ? theme.colors.tertiaryGradient
+                        : theme.colors.zonePeakGradient
+                    }
+                    style={styles.vitalValue}
+                  >
+                    {sensorData.battery.level}
+                  </SimpleGradientText>
+                  <Text style={styles.vitalUnit}>%</Text>
+                </View>
+                <Text style={styles.vitalSubtext}>
+                  {sensorData.battery.level > 50 ? 'Good' : sensorData.battery.level > 20 ? 'Low' : 'Critical'}
+                  {sensorData.miscData?.charging && ' • Charging'}
+                </Text>
+              </>
+            ) : (
+              <View style={styles.vitalNoData}>
+                <Icon name="hourglass-empty" size={32} color={theme.colors.outline} />
+                <Text style={styles.vitalNoDataText}>
+                  {isConnected ? 'Waiting...' : 'No device'}
+                </Text>
+              </View>
+            )}
+          </NeumorphicCard>
+        </View>
 
         {/* HRV Display - Only show if data available */}
         {isConnected && hrvMetrics && (
@@ -548,51 +524,25 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
             <Text style={styles.emptyStateText}>
               {isConnected
                 ? 'Waiting for heart rate data from your sensor...'
-                : 'Connect a device or start simulation to see data'}
+                : 'Connect your Nordic device to see heart rate data'}
             </Text>
           </View>
         )}
 
-        {/* **FIXED: Control Buttons with Nordic device logic** */}
-        <View style={styles.buttonContainer}>
-          {!isConnected && (
+        {/* Connect Button */}
+        {!isConnected && (
+          <View style={styles.buttonContainer}>
             <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                { backgroundColor: isMonitoring ? theme.colors.error : theme.colors.primary }
-              ]}
-              onPress={toggleMonitoring}
+              style={styles.primaryButton}
+              onPress={() => navigation.navigate('DataManagement')}
             >
-              <Icon
-                name={isMonitoring ? 'stop' : 'play-arrow'}
-                size={20}
-                color={theme.colors.onPrimary}
-              />
+              <Icon name="bluetooth" size={20} color={theme.colors.onPrimary} />
               <Text style={styles.primaryButtonText}>
-                {isMonitoring ? 'Stop Simulation' : 'Start Simulation'}
+                Connect Nordic Device
               </Text>
             </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => navigation.navigate('DataManagement')}
-          >
-            <Icon name="bluetooth" size={20} color={theme.colors.primary} />
-            <Text style={styles.secondaryButtonText}>
-              {isConnected ? 'Manage Device' : 'Connect Device'}
-            </Text>
-          </TouchableOpacity>
-
-          {readings.length > 0 && (
-            <TouchableOpacity style={styles.secondaryButton} onPress={clearData}>
-              <Icon name="clear-all" size={20} color={theme.colors.error} />
-              <Text style={[styles.secondaryButtonText, { color: theme.colors.error }]}>
-                Clear Data
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
       </View>
     </ScrollView>
   );
@@ -647,8 +597,19 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
-  ecgContainer: {
-    marginBottom: 20,
+  sensorStatusText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.colors.textSecondary,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  confidenceText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: theme.colors.textSecondary,
+    marginTop: 4,
+    textAlign: 'center',
   },
   statusContainer: {
     alignItems: 'center',
@@ -717,6 +678,58 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  vitalPanelsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  vitalPanel: {
+    flex: 1,
+    padding: 16,
+    alignItems: 'center',
+  },
+  vitalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  vitalTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  vitalValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 8,
+  },
+  vitalValue: {
+    fontSize: 36,
+    fontWeight: '700',
+  },
+  vitalUnit: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
+    marginLeft: 4,
+  },
+  vitalSubtext: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+  },
+  vitalNoData: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  vitalNoDataText: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+    marginTop: 6,
   },
   spO2Container: {
     backgroundColor: theme.colors.surfaceVariant,

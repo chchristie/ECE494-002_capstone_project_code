@@ -11,13 +11,14 @@ import {
   FlatList,
   Platform,
   PermissionsAndroid,
+  Switch,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DataManager from '../services/DataManager';
 import type { SimpleNavigationProps } from '../types/simple-navigation';
 import { theme } from '../styles/theme';
 import { useBluetooth } from '../context/BluetoothContext';
-import { FileExporter } from '../utils/FileExporter';
 
 type DataManagementScreenProps = SimpleNavigationProps & {
   route: { name: 'DataManagement'; key: string; params: undefined };
@@ -36,9 +37,9 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
   const [stats, setStats] = useState<DatabaseStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showBluetoothSection, setShowBluetoothSection] = useState(false);
   const [bluetoothCheckLog, setBluetoothCheckLog] = useState<Array<{timestamp: Date, connected: boolean}>>([]);
+  const [accelerometerEnabled, setAccelerometerEnabled] = useState(true);
 
   const {
     state,
@@ -67,8 +68,50 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
     }
   };
 
+  // Load accelerometer setting from AsyncStorage
+  const loadAccelerometerSetting = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('accelerometer_enabled');
+      if (stored !== null) {
+        setAccelerometerEnabled(stored === 'true');
+      }
+    } catch (error) {
+      console.error('Failed to load accelerometer setting:', error);
+    }
+  };
+
+  // Save accelerometer setting to AsyncStorage
+  const saveAccelerometerSetting = async (enabled: boolean) => {
+    try {
+      await AsyncStorage.setItem('accelerometer_enabled', enabled.toString());
+    } catch (error) {
+      console.error('Failed to save accelerometer setting:', error);
+    }
+  };
+
+  // Handle accelerometer toggle
+  const handleAccelerometerToggle = (value: boolean) => {
+    setAccelerometerEnabled(value);
+    saveAccelerometerSetting(value);
+    
+    if (value) {
+      Alert.alert(
+        'Accelerometer Enabled',
+        'Accelerometer data will be collected on next connection. If already connected, please reconnect the device.',
+        [{ text: 'OK' }]
+      );
+    } else {
+      Alert.alert(
+        'Accelerometer Disabled',
+        'Accelerometer data will not be collected. This reduces battery usage and storage.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
   useEffect(() => {
     loadStats();
+    loadAccelerometerSetting();
   }, []);
 
   // Bluetooth connection checker - logs every 5 minutes
@@ -101,97 +144,6 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
     };
   }, [isConnected]);
 
-  // Capture console logs for debug panel
-  useEffect(() => {
-    const originalLog = console.log;
-    const originalError = console.error;
-    const originalWarn = console.warn;
-
-    const addLog = (type: string, ...args: any[]) => {
-      const timestamp = new Date().toLocaleTimeString();
-      const message = `[${timestamp}] ${type}: ${args.map(a =>
-        typeof a === 'object' ? JSON.stringify(a) : String(a)
-      ).join(' ')}`;
-
-      setDebugLogs(prev => [...prev.slice(-99), message]); // Keep last 100 logs
-    };
-
-    console.log = (...args: any[]) => {
-      addLog('LOG', ...args);
-      originalLog(...args);
-    };
-
-    console.error = (...args: any[]) => {
-      addLog('ERROR', ...args);
-      originalError(...args);
-    };
-
-    console.warn = (...args: any[]) => {
-      addLog('WARN', ...args);
-      originalWarn(...args);
-    };
-
-    return () => {
-      console.log = originalLog;
-      console.error = originalError;
-      console.warn = originalWarn;
-    };
-  }, []);
-
-  const handleExportAll = async () => {
-    Alert.alert(
-      'Export Format',
-      'Choose export format:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'CSV (Excel/Research)',
-          onPress: async () => {
-            try {
-              const csvData = await DataManager.exportAllDataCSV();
-              const result = await FileExporter.exportCSV(csvData, 'AllData');
-
-              if (result.success) {
-                const stats = await DataManager.getDatabaseStats();
-                Alert.alert(
-                  'Export Successful',
-                  `CSV file saved to Downloads/HeartRateMonitor/\n\nContains ${stats.totalSessions} sessions with ${stats.totalReadings} readings.\n\nPath: ${result.path}`
-                );
-              } else {
-                Alert.alert('Export Failed', result.error || 'Could not save file');
-              }
-            } catch (error) {
-              console.error('CSV export failed:', error);
-              Alert.alert('Export Failed', 'Could not export CSV data');
-            }
-          },
-        },
-        {
-          text: 'JSON (Developer)',
-          onPress: async () => {
-            try {
-              const jsonData = await DataManager.exportAllData();
-              const result = await FileExporter.exportJSON(jsonData, 'AllData');
-
-              if (result.success) {
-                const stats = await DataManager.getDatabaseStats();
-                Alert.alert(
-                  'Export Successful',
-                  `JSON file saved to Downloads/HeartRateMonitor/\n\nContains ${stats.totalSessions} sessions with ${stats.totalReadings} readings.\n\nPath: ${result.path}`
-                );
-              } else {
-                Alert.alert('Export Failed', result.error || 'Could not save file');
-              }
-            } catch (error) {
-              console.error('JSON export failed:', error);
-              Alert.alert('Export Failed', 'Could not export JSON data');
-            }
-          },
-        },
-      ]
-    );
-  };
-
   const handleCleanOldData = () => {
     Alert.alert(
       'Clean Old Data',
@@ -214,17 +166,6 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
         },
       ]
     );
-  };
-
-  const handleOptimizeDatabase = async () => {
-    try {
-      await DataManager.optimizeDatabase();
-      Alert.alert('Success', 'Database optimized successfully');
-      loadStats();
-    } catch (error) {
-      console.error('Optimization failed:', error);
-      Alert.alert('Error', 'Failed to optimize database');
-    }
   };
 
   const handleClearAllData = () => {
@@ -420,6 +361,34 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
           )}
         </View>
 
+        {/* Sensor Settings Section */}
+        <View style={styles.settingsCard}>
+          <Text style={styles.sectionTitle}>Sensor Settings</Text>
+          
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <View style={styles.settingHeader}>
+                <Icon name="track-changes" size={24} color={theme.colors.primary} />
+                <Text style={styles.settingTitle}>Accelerometer Data</Text>
+              </View>
+              <Text style={styles.settingDescription}>
+                Collect 3-axis accelerometer data at ~100Hz. Disable to reduce battery usage and storage.
+              </Text>
+              <Text style={[styles.settingStatus, { 
+                color: accelerometerEnabled ? theme.colors.success : theme.colors.outline 
+              }]}>
+                {accelerometerEnabled ? 'Enabled - Data will be collected' : 'Disabled - Not collecting data'}
+              </Text>
+            </View>
+            <Switch
+              value={accelerometerEnabled}
+              onValueChange={handleAccelerometerToggle}
+              trackColor={{ false: theme.colors.outline, true: theme.colors.primary }}
+              thumbColor={accelerometerEnabled ? theme.colors.surface : theme.colors.surfaceVariant}
+            />
+          </View>
+        </View>
+
         {/* Storage Stats */}
         {!loading && stats && (
           <>
@@ -492,34 +461,12 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
                 <Icon name="chevron-right" size={24} color={theme.colors.onSurfaceVariant} />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.actionButton} onPress={handleExportAll}>
-                <Icon name="file-download" size={24} color={theme.colors.primary} />
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Export All Data</Text>
-                  <Text style={styles.actionSubtitle}>
-                    Export all sessions and readings as JSON
-                  </Text>
-                </View>
-                <Icon name="chevron-right" size={24} color={theme.colors.onSurfaceVariant} />
-              </TouchableOpacity>
-
               <TouchableOpacity style={styles.actionButton} onPress={loadStats}>
                 <Icon name="refresh" size={24} color={theme.colors.secondary} />
                 <View style={styles.actionContent}>
                   <Text style={styles.actionTitle}>Refresh Statistics</Text>
                   <Text style={styles.actionSubtitle}>
                     Update storage statistics
-                  </Text>
-                </View>
-                <Icon name="chevron-right" size={24} color={theme.colors.onSurfaceVariant} />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionButton} onPress={handleOptimizeDatabase}>
-                <Icon name="speed" size={24} color={theme.colors.tertiary} />
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Optimize Database</Text>
-                  <Text style={styles.actionSubtitle}>
-                    Reclaim space and improve performance
                   </Text>
                 </View>
                 <Icon name="chevron-right" size={24} color={theme.colors.onSurfaceVariant} />
@@ -685,24 +632,6 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
                     </ScrollView>
                   </View>
 
-                  {/* Console Logs */}
-                  <View style={styles.debugCard}>
-                    <View style={styles.debugCardHeader}>
-                      <Text style={styles.debugCardTitle}>Console Logs</Text>
-                      <TouchableOpacity onPress={() => setDebugLogs([])}>
-                        <Text style={styles.clearLogsText}>Clear</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <ScrollView style={styles.logsContainer} nestedScrollEnabled>
-                      {debugLogs.length === 0 ? (
-                        <Text style={styles.noLogsText}>No logs yet...</Text>
-                      ) : (
-                        debugLogs.slice(-20).reverse().map((log, index) => (
-                          <Text key={index} style={styles.logText}>{log}</Text>
-                        ))
-                      )}
-                    </ScrollView>
-                  </View>
                 </View>
               )}
             </View>
@@ -749,6 +678,45 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 16,
     elevation: 2,
+  },
+  settingsCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    elevation: 2,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  settingInfo: {
+    flex: 1,
+    marginRight: 16,
+  },
+  settingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    marginLeft: 12,
+  },
+  settingDescription: {
+    fontSize: 13,
+    color: theme.colors.outline,
+    lineHeight: 18,
+    marginBottom: 6,
+  },
+  settingStatus: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 4,
   },
   sectionTitle: {
     fontSize: 18,
