@@ -1,5 +1,4 @@
-// src/services/DataManager.ts - Simplified with AsyncStorage fallback
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// src/services/DataManager.ts
 import {
   HeartRateData,
   SpO2Data,
@@ -9,17 +8,8 @@ import {
   BufferedAccelerometerData,
 } from './nordic-ble-services';
 
-// Try to import SQLite, but fallback gracefully if it fails
-let SQLite: any = null;
-try {
-  SQLite = require('react-native-sqlite-storage');
-  if (SQLite) {
-    SQLite.enablePromise(true);
-    console.log('SQLite available');
-  }
-} catch (error) {
-  console.log('SQLite not available, using AsyncStorage fallback');
-}
+const SQLite = require('react-native-sqlite-storage');
+SQLite.enablePromise(true);
 
 // Legacy type for backward compatibility
 export interface HeartRateReading {
@@ -85,44 +75,24 @@ export interface ExportOptions {
 
 export class DataManager {
   private static db: any = null;
-  private static usingSQLite: boolean = false;
   private static accelTableEnsured: boolean = false;
   private static readonly DB_NAME = 'nordic_sensor_data.db';
-  
-  // Storage keys for AsyncStorage fallback
-  private static readonly LEGACY_STORAGE_KEY = 'HeartRateReadings';
-  private static readonly SESSIONS_STORAGE_KEY = 'MonitoringSessions';
-  private static readonly ENHANCED_READINGS_KEY = 'EnhancedSensorReadings';
   private static readonly RETENTION_HOURS = 24;
 
-  // Initialize database (SQLite if available, AsyncStorage otherwise)
   static async initialize(): Promise<void> {
     try {
-      if (SQLite) {
-        this.db = await SQLite.openDatabase({
-          name: this.DB_NAME,
-          location: 'default',
-        });
+      this.db = await SQLite.openDatabase({
+        name: this.DB_NAME,
+        location: 'default',
+      });
 
-        if (this.db) {
-          this.usingSQLite = true;  // Set BEFORE createTables so migrations can run
-          await this.createTables();
-          await this.ensureAccelerometerTableExists();
-        } else {
-          this.usingSQLite = false;
-        }
-      } else {
-        this.usingSQLite = false;
-        this.db = null;
+      if (this.db) {
+        await this.createTables();
+        await this.ensureAccelerometerTableExists();
       }
     } catch (error) {
       console.error('SQLite initialization failed:', error);
-      this.usingSQLite = false;
-      this.db = null;
-    }
-
-    if (this.usingSQLite) {
-      await this.migrateFromAsyncStorage();
+      throw error;
     }
   }
 
@@ -189,7 +159,6 @@ export class DataManager {
       // await this.runMigrations();
     } catch (error) {
       console.error('Failed to create SQLite tables:', error);
-      this.usingSQLite = false;
       this.db = null;
       throw error;
     }
@@ -197,7 +166,7 @@ export class DataManager {
 
   // **NEW: Database Migration System**
   private static async runMigrations(): Promise<void> {
-    if (!this.db || !this.usingSQLite) {
+    if (!this.db) {
       return;
     }
 
@@ -488,38 +457,6 @@ export class DataManager {
     }
   }
 
-  private static async migrateFromAsyncStorage(): Promise<void> {
-    try {
-      const existingData = await AsyncStorage.getItem(this.LEGACY_STORAGE_KEY);
-      if (!existingData) {
-        return;
-      }
-
-      const legacyReadings: any[] = JSON.parse(existingData);
-      if (legacyReadings.length === 0) return;
-
-      const migrationSession = await this.createSession('Legacy Data Migration', 'Migrated from AsyncStorage');
-
-      const enhancedReadings: EnhancedSensorReading[] = legacyReadings.map(reading => ({
-        id: reading.id || this.generateId(),
-        sessionId: migrationSession.id,
-        deviceId: 'legacy_device',
-        timestamp: new Date(reading.timestamp),
-        heartRate: {
-          value: reading.heartRate,
-          contactDetected: true,
-          signalQuality: 50,
-        },
-      }));
-
-      await this.saveEnhancedReadings(enhancedReadings);
-      await this.endSession(migrationSession.id);
-      await AsyncStorage.removeItem(this.LEGACY_STORAGE_KEY);
-
-    } catch (error) {
-      console.error('Failed to migrate legacy data:', error);
-    }
-  }
 
   // Session Management
   static async createSession(deviceName?: string, notes?: string): Promise<MonitoringSession> {
@@ -532,197 +469,60 @@ export class DataManager {
       isActive: true,
     };
 
-    if (this.usingSQLite && this.db) {
-      // SQLite storage
-      const sql = `
-        INSERT INTO monitoring_sessions 
-        (id, start_time, device_name, notes, data_count, is_active)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `;
+    const sql = `
+      INSERT INTO monitoring_sessions 
+      (id, start_time, device_name, notes, data_count, is_active)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
 
-      try {
-        await this.db.executeSql(sql, [
-          session.id,
-          session.startTime.getTime(),
-          session.deviceName || null,
-          session.notes || null,
-          session.dataCount,
-          session.isActive ? 1 : 0,
-        ]);
-      } catch (error) {
-        console.error('Failed to create session in SQLite:', error);
-        throw error;
-      }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const sessions = await this.getActiveSessions();
-        sessions.push(session);
-        await AsyncStorage.setItem(this.SESSIONS_STORAGE_KEY, JSON.stringify(sessions.map(s => ({
-          ...s,
-          startTime: s.startTime.toISOString(),
-          endTime: s.endTime?.toISOString(),
-        }))));
-      } catch (error) {
-        console.error('Failed to create session in AsyncStorage:', error);
-        throw error;
-      }
+    try {
+      await this.db.executeSql(sql, [
+        session.id,
+        session.startTime.getTime(),
+        session.deviceName || null,
+        session.notes || null,
+        session.dataCount,
+        session.isActive ? 1 : 0,
+      ]);
+    } catch (error) {
+      console.error('Failed to create session:', error);
+      throw error;
     }
 
     return session;
   }
 
   static async endSession(sessionId: string): Promise<void> {
-    if (this.usingSQLite && this.db) {
-      // SQLite storage
-      const sql = `
-        UPDATE monitoring_sessions 
-        SET end_time = ?, is_active = 0 
-        WHERE id = ?
-      `;
+    const sql = `
+      UPDATE monitoring_sessions 
+      SET end_time = ?, is_active = 0 
+      WHERE id = ?
+    `;
 
-      try {
-        await this.db.executeSql(sql, [Date.now(), sessionId]);
-      } catch (error) {
-        console.error('Failed to end session in SQLite:', error);
-        throw error;
-      }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const sessions = await this.getActiveSessions();
-        const updatedSessions = sessions.map(session => 
-          session.id === sessionId 
-            ? { ...session, endTime: new Date(), isActive: false }
-            : session
-        );
-        await AsyncStorage.setItem(this.SESSIONS_STORAGE_KEY, JSON.stringify(updatedSessions.map(s => ({
-          ...s,
-          startTime: s.startTime.toISOString(),
-          endTime: s.endTime?.toISOString(),
-        }))));
-      } catch (error) {
-        console.error('Failed to end session in AsyncStorage:', error);
-        throw error;
-      }
+    try {
+      await this.db.executeSql(sql, [Date.now(), sessionId]);
+    } catch (error) {
+      console.error('Failed to end session:', error);
+      throw error;
     }
   }
 
   static async getActiveSessions(): Promise<MonitoringSession[]> {
-    if (this.usingSQLite && this.db) {
-      // SQLite storage
-      const sql = `
-        SELECT * FROM monitoring_sessions
-        WHERE is_active = 1
-        ORDER BY start_time DESC
-      `;
+    const sql = `
+      SELECT * FROM monitoring_sessions
+      WHERE is_active = 1
+      ORDER BY start_time DESC
+    `;
 
-      try {
-        const results = await this.db.executeSql(sql);
-        const sessions: MonitoringSession[] = [];
+    try {
+      const results = await this.db.executeSql(sql);
+      const sessions: MonitoringSession[] = [];
 
-        if (results && results.length > 0) {
-          const rows = results[0].rows;
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows.item(i);
-            sessions.push({
-              id: row.id,
-              startTime: new Date(row.start_time),
-              endTime: row.end_time ? new Date(row.end_time) : undefined,
-              deviceName: row.device_name,
-              notes: row.notes,
-              dataCount: row.data_count,
-              isActive: Boolean(row.is_active),
-            });
-          }
-        }
-
-        return sessions;
-      } catch (error) {
-        console.error('Failed to get active sessions from SQLite:', error);
-        return [];
-      }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const data = await AsyncStorage.getItem(this.SESSIONS_STORAGE_KEY);
-        if (!data) return [];
-
-        const sessions = JSON.parse(data);
-        return sessions
-          .filter((s: any) => s.isActive)
-          .map((s: any) => ({
-            ...s,
-            startTime: new Date(s.startTime),
-            endTime: s.endTime ? new Date(s.endTime) : undefined,
-          }));
-      } catch (error) {
-        console.error('Failed to get active sessions from AsyncStorage:', error);
-        return [];
-      }
-    }
-  }
-
-  static async getAllSessions(): Promise<MonitoringSession[]> {
-    if (this.usingSQLite && this.db) {
-      // SQLite storage
-      const sql = `
-        SELECT * FROM monitoring_sessions
-        ORDER BY start_time DESC
-      `;
-
-      try {
-        const results = await this.db.executeSql(sql);
-        const sessions: MonitoringSession[] = [];
-
-        if (results && results.length > 0) {
-          const rows = results[0].rows;
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows.item(i);
-            sessions.push({
-              id: row.id,
-              startTime: new Date(row.start_time),
-              endTime: row.end_time ? new Date(row.end_time) : undefined,
-              deviceName: row.device_name,
-              notes: row.notes,
-              dataCount: row.data_count,
-              isActive: Boolean(row.is_active),
-            });
-          }
-        }
-
-        return sessions;
-      } catch (error) {
-        console.error('Failed to get all sessions from SQLite:', error);
-        return [];
-      }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const data = await AsyncStorage.getItem(this.SESSIONS_STORAGE_KEY);
-        if (!data) return [];
-
-        const sessions = JSON.parse(data);
-        return sessions.map((s: any) => ({
-          ...s,
-          startTime: new Date(s.startTime),
-          endTime: s.endTime ? new Date(s.endTime) : undefined,
-        }));
-      } catch (error) {
-        console.error('Failed to get all sessions from AsyncStorage:', error);
-        return [];
-      }
-    }
-  }
-
-  static async getSession(sessionId: string): Promise<MonitoringSession | null> {
-    if (this.usingSQLite && this.db) {
-      const sql = `SELECT * FROM monitoring_sessions WHERE id = ?`;
-      try {
-        const results = await this.db.executeSql(sql, [sessionId]);
-        if (results && results.length > 0 && results[0].rows.length > 0) {
-          const row = results[0].rows.item(0);
-          return {
+      if (results && results.length > 0) {
+        const rows = results[0].rows;
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows.item(i);
+          sessions.push({
             id: row.id,
             startTime: new Date(row.start_time),
             endTime: row.end_time ? new Date(row.end_time) : undefined,
@@ -730,80 +530,96 @@ export class DataManager {
             notes: row.notes,
             dataCount: row.data_count,
             isActive: Boolean(row.is_active),
-          };
+          });
         }
-        return null;
-      } catch (error) {
-        console.error('Failed to get session from SQLite:', error);
-        return null;
       }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const data = await AsyncStorage.getItem(this.SESSIONS_STORAGE_KEY);
-        if (!data) return null;
 
-        const sessions = JSON.parse(data);
-        const session = sessions.find((s: any) => s.id === sessionId);
-        if (!session) return null;
+      return sessions;
+    } catch (error) {
+      console.error('Failed to get active sessions:', error);
+      return [];
+    }
+  }
 
+  static async getAllSessions(): Promise<MonitoringSession[]> {
+    const sql = `
+      SELECT * FROM monitoring_sessions
+      ORDER BY start_time DESC
+    `;
+
+    try {
+      const results = await this.db.executeSql(sql);
+      const sessions: MonitoringSession[] = [];
+
+      if (results && results.length > 0) {
+        const rows = results[0].rows;
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows.item(i);
+          sessions.push({
+            id: row.id,
+            startTime: new Date(row.start_time),
+            endTime: row.end_time ? new Date(row.end_time) : undefined,
+            deviceName: row.device_name,
+            notes: row.notes,
+            dataCount: row.data_count,
+            isActive: Boolean(row.is_active),
+          });
+        }
+      }
+
+      return sessions;
+    } catch (error) {
+      console.error('Failed to get all sessions:', error);
+      return [];
+    }
+  }
+
+  static async getSession(sessionId: string): Promise<MonitoringSession | null> {
+    const sql = `SELECT * FROM monitoring_sessions WHERE id = ?`;
+    try {
+      const results = await this.db.executeSql(sql, [sessionId]);
+      if (results && results.length > 0 && results[0].rows.length > 0) {
+        const row = results[0].rows.item(0);
         return {
-          ...session,
-          startTime: new Date(session.startTime),
-          endTime: session.endTime ? new Date(session.endTime) : undefined,
+          id: row.id,
+          startTime: new Date(row.start_time),
+          endTime: row.end_time ? new Date(row.end_time) : undefined,
+          deviceName: row.device_name,
+          notes: row.notes,
+          dataCount: row.data_count,
+          isActive: Boolean(row.is_active),
         };
-      } catch (error) {
-        console.error('Failed to get session from AsyncStorage:', error);
-        return null;
       }
+      return null;
+    } catch (error) {
+      console.error('Failed to get session:', error);
+      return null;
     }
   }
 
   static async getSessionReadings(sessionId: string): Promise<EnhancedSensorReading[]> {
-    if (this.usingSQLite && this.db) {
-      const sql = `
-        SELECT * FROM sensor_readings
-        WHERE session_id = ?
-        ORDER BY timestamp DESC
-      `;
+    const sql = `
+      SELECT * FROM sensor_readings
+      WHERE session_id = ?
+      ORDER BY timestamp DESC
+    `;
 
-      try {
-        const results = await this.db.executeSql(sql, [sessionId]);
-        const readings: EnhancedSensorReading[] = [];
+    try {
+      const results = await this.db.executeSql(sql, [sessionId]);
+      const readings: EnhancedSensorReading[] = [];
 
-        if (results && results.length > 0) {
-          const rows = results[0].rows;
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows.item(i);
-            readings.push(this.rowToEnhancedReading(row));
-          }
+      if (results && results.length > 0) {
+        const rows = results[0].rows;
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows.item(i);
+          readings.push(this.rowToEnhancedReading(row));
         }
-
-        return readings;
-      } catch (error) {
-        console.error('Failed to get session readings from SQLite:', error);
-        return [];
       }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const data = await AsyncStorage.getItem(this.ENHANCED_READINGS_KEY);
-        if (!data) return [];
 
-        const allReadings = JSON.parse(data);
-        return allReadings
-          .filter((r: any) => r.sessionId === sessionId)
-          .map((r: any) => ({
-            ...r,
-            timestamp: new Date(r.timestamp),
-          }))
-          .sort((a: EnhancedSensorReading, b: EnhancedSensorReading) =>
-            b.timestamp.getTime() - a.timestamp.getTime()
-          );
-      } catch (error) {
-        console.error('Failed to get session readings from AsyncStorage:', error);
-        return [];
-      }
+      return readings;
+    } catch (error) {
+      console.error('Failed to get session readings:', error);
+      return [];
     }
   }
 
@@ -870,114 +686,71 @@ export class DataManager {
       return;
     }
 
-    if (this.usingSQLite && this.db) {
-      const sql = `
-          INSERT INTO accelerometer_readings
-          (id, session_id, second_counter, sample_index, x, y, z, magnitude)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `;
+    const sql = `
+      INSERT INTO accelerometer_readings
+      (id, session_id, second_counter, sample_index, x, y, z, magnitude)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
-      for (const sample of samples) {
-        const values = [
-          this.generateId(),
-          sessionId,
-          sample.secondCounter,
-          sample.sampleIndex,
-          sample.x,
-          sample.y,
-          sample.z,
-          sample.magnitude,
-        ];
+    for (const sample of samples) {
+      const values = [
+        this.generateId(),
+        sessionId,
+        sample.secondCounter,
+        sample.sampleIndex,
+        sample.x,
+        sample.y,
+        sample.z,
+        sample.magnitude,
+      ];
 
-        await this.db.executeSql(sql, values);
-      }
+      await this.db.executeSql(sql, values);
     }
   }
 
   private static async saveEnhancedReadings(readings: EnhancedSensorReading[]): Promise<void> {
-    if (this.usingSQLite && this.db) {
-      // SQLite storage
-      const sql = `
-        INSERT INTO sensor_readings
-        (id, session_id, device_id, timestamp, heart_rate, hr_contact_detected,
-         spo2_value, spo2_pulse_rate, battery_level, battery_voltage, sensor_confidence, raw_data)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
+    const sql = `
+      INSERT INTO sensor_readings
+      (id, session_id, device_id, timestamp, heart_rate, hr_contact_detected,
+       spo2_value, spo2_pulse_rate, battery_level, battery_voltage, sensor_confidence, raw_data)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
-      try {
-        for (const reading of readings) {
-          const values = [
-            reading.id,
-            reading.sessionId,
-            reading.deviceId,
-            reading.timestamp.getTime(),
-            reading.heartRate?.value ?? null,
-            reading.heartRate?.contactDetected ? 1 : (reading.heartRate ? 0 : null),
-            reading.spO2?.value ?? null,
-            reading.spO2?.pulseRate ?? null,
-            reading.battery?.level ?? null,
-            reading.battery?.voltage ?? null,
-            reading.sensorStatus?.confidence ?? null,
-            reading.rawData ?? null,
-          ];
+    try {
+      for (const reading of readings) {
+        const values = [
+          reading.id,
+          reading.sessionId,
+          reading.deviceId,
+          reading.timestamp.getTime(),
+          reading.heartRate?.value ?? null,
+          reading.heartRate?.contactDetected ? 1 : (reading.heartRate ? 0 : null),
+          reading.spO2?.value ?? null,
+          reading.spO2?.pulseRate ?? null,
+          reading.battery?.level ?? null,
+          reading.battery?.voltage ?? null,
+          reading.sensorStatus?.confidence ?? null,
+          reading.rawData ?? null,
+        ];
 
-          await this.db.executeSql(sql, values);
-          await this.incrementSessionDataCount(reading.sessionId);
-        }
-      } catch (error) {
-        console.error('Failed to save enhanced readings to SQLite:', error);
-        throw error;
+        await this.db.executeSql(sql, values);
+        await this.incrementSessionDataCount(reading.sessionId);
       }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const existingData = await AsyncStorage.getItem(this.ENHANCED_READINGS_KEY);
-        const existingReadings = existingData ? JSON.parse(existingData) : [];
-
-        const allReadings = [...existingReadings, ...readings.map(r => ({
-          ...r,
-          timestamp: r.timestamp.toISOString(),
-        }))];
-
-        await AsyncStorage.setItem(this.ENHANCED_READINGS_KEY, JSON.stringify(allReadings));
-
-        // Update session data counts
-        for (const reading of readings) {
-          await this.incrementSessionDataCount(reading.sessionId);
-        }
-      } catch (error) {
-        console.error('Failed to save enhanced readings to AsyncStorage:', error);
-        throw error;
-      }
+    } catch (error) {
+      console.error('Failed to save enhanced readings:', error);
+      throw error;
     }
   }
 
   // Increment session data count
   private static async incrementSessionDataCount(sessionId: string): Promise<void> {
-    if (this.usingSQLite && this.db) {
-      try {
-        await this.db.executeSql(
-          'UPDATE monitoring_sessions SET data_count = data_count + 1 WHERE id = ?',
-          [sessionId]
-        );
-      } catch (error) {
-        console.error('Failed to increment session data count in SQLite:', error);
-      }
-    } else {
-      try {
-        const data = await AsyncStorage.getItem(this.SESSIONS_STORAGE_KEY);
-        if (data) {
-          const sessions = JSON.parse(data);
-          const updated = sessions.map((s: any) =>
-            s.id === sessionId
-              ? { ...s, dataCount: (s.dataCount || 0) + 1 }
-              : s
-          );
-          await AsyncStorage.setItem(this.SESSIONS_STORAGE_KEY, JSON.stringify(updated));
-        }
-      } catch (error) {
-        console.error('Failed to increment session data count in AsyncStorage:', error);
-      }
+    try {
+      await this.db.executeSql(
+        'UPDATE monitoring_sessions SET data_count = data_count + 1 WHERE id = ?',
+        [sessionId]
+      );
+    } catch (error) {
+      console.error('Failed to increment session data count:', error);
     }
   }
 
@@ -1040,109 +813,68 @@ export class DataManager {
   static async getRecentReadings(hours: number = 24): Promise<EnhancedSensorReading[]> {
     const cutoffTime = Date.now() - (hours * 60 * 60 * 1000);
 
-    if (this.usingSQLite && this.db) {
-      // SQLite storage
-      const sql = `
-        SELECT * FROM sensor_readings 
-        WHERE timestamp > ?
-        ORDER BY timestamp DESC
-        LIMIT 10000
-      `;
+    const sql = `
+      SELECT * FROM sensor_readings 
+      WHERE timestamp > ?
+      ORDER BY timestamp DESC
+      LIMIT 10000
+    `;
 
-      try {
-        const results = await this.db.executeSql(sql, [cutoffTime]);
-        const readings: EnhancedSensorReading[] = [];
-        
-        if (results && results.length > 0) {
-          const rows = results[0].rows;
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows.item(i);
-            readings.push(this.rowToEnhancedReading(row));
-          }
+    try {
+      const results = await this.db.executeSql(sql, [cutoffTime]);
+      const readings: EnhancedSensorReading[] = [];
+      
+      if (results && results.length > 0) {
+        const rows = results[0].rows;
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows.item(i);
+          readings.push(this.rowToEnhancedReading(row));
         }
-        
-        return readings;
-      } catch (error) {
-        console.error('Failed to get recent readings from SQLite:', error);
-        return [];
       }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const data = await AsyncStorage.getItem(this.ENHANCED_READINGS_KEY);
-        if (!data) return [];
-
-        const allReadings = JSON.parse(data);
-        return allReadings
-          .map((r: any) => ({
-            ...r,
-            timestamp: new Date(r.timestamp),
-          }))
-          .filter((r: EnhancedSensorReading) => r.timestamp.getTime() > cutoffTime)
-          .sort((a: EnhancedSensorReading, b: EnhancedSensorReading) => b.timestamp.getTime() - a.timestamp.getTime())
-          .slice(0, 10000);
-      } catch (error) {
-        console.error('Failed to get recent readings from AsyncStorage:', error);
-        return [];
-      }
+      
+      return readings;
+    } catch (error) {
+      console.error('Failed to get recent readings:', error);
+      return [];
     }
   }
 
   // Get accelerometer readings from separate table
   static async getAccelerometerReadings(sessionId: string, limit?: number, offset?: number): Promise<BufferedAccelerometerData[]> {
-    if (this.usingSQLite && this.db) {
-      try {
-        let query = `SELECT * FROM accelerometer_readings 
-           WHERE session_id = ? 
-           ORDER BY second_counter ASC, sample_index ASC`;
-        const params: any[] = [sessionId];
-        
-        if (limit !== undefined) {
-          query += ` LIMIT ?`;
-          params.push(limit);
-        }
-        if (offset !== undefined) {
-          query += ` OFFSET ?`;
-          params.push(offset);
-        }
-
-        const result = await this.db.executeSql(query, params);
-
-        const readings: BufferedAccelerometerData[] = [];
-        for (let i = 0; i < result[0].rows.length; i++) {
-          const row = result[0].rows.item(i);
-          readings.push({
-            x: row.x,
-            y: row.y,
-            z: row.z,
-            magnitude: row.magnitude,
-            secondCounter: row.second_counter,
-            sampleIndex: row.sample_index,
-          });
-        }
-
-        return readings;
-      } catch (error) {
-        console.error('Failed to get accelerometer readings:', error);
-        return [];
+    try {
+      let query = `SELECT * FROM accelerometer_readings 
+         WHERE session_id = ? 
+         ORDER BY second_counter ASC, sample_index ASC`;
+      const params: any[] = [sessionId];
+      
+      if (limit !== undefined) {
+        query += ` LIMIT ?`;
+        params.push(limit);
       }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const key = `${this.LEGACY_STORAGE_KEY}_accel_${sessionId}`;
-        const data = await AsyncStorage.getItem(key);
-        if (!data) return [];
-
-        const readings = JSON.parse(data);
-        return readings.map((r: any) => ({
-          ...r,
-          timestamp: new Date(r.timestamp),
-          unit: 'g' as const,
-        }));
-      } catch (error) {
-        console.error('Failed to get accelerometer readings from AsyncStorage:', error);
-        return [];
+      if (offset !== undefined) {
+        query += ` OFFSET ?`;
+        params.push(offset);
       }
+
+      const result = await this.db.executeSql(query, params);
+
+      const readings: BufferedAccelerometerData[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        readings.push({
+          x: row.x,
+          y: row.y,
+          z: row.z,
+          magnitude: row.magnitude,
+          secondCounter: row.second_counter,
+          sampleIndex: row.sample_index,
+        });
+      }
+
+      return readings;
+    } catch (error) {
+      console.error('Failed to get accelerometer readings:', error);
+      return [];
     }
   }
 
@@ -1152,57 +884,34 @@ export class DataManager {
     sessionId: string, 
     secondCounterInterval: number = 10
   ): Promise<BufferedAccelerometerData[]> {
-    if (this.usingSQLite && this.db) {
-      try {
-        // Get first sample (sample_index = 0) from every Nth secondCounter using modulus
-        const result = await this.db.executeSql(
-          `SELECT * FROM accelerometer_readings 
-           WHERE session_id = ? 
-           AND sample_index = 0
-           AND second_counter % ? = 0
-           ORDER BY second_counter ASC`,
-          [sessionId, secondCounterInterval]
-        );
+    try {
+      // Get first sample (sample_index = 0) from every Nth secondCounter using modulus
+      const result = await this.db.executeSql(
+        `SELECT * FROM accelerometer_readings 
+         WHERE session_id = ? 
+         AND sample_index = 0
+         AND second_counter % ? = 0
+         ORDER BY second_counter ASC`,
+        [sessionId, secondCounterInterval]
+      );
 
-        const readings: BufferedAccelerometerData[] = [];
-        for (let i = 0; i < result[0].rows.length; i++) {
-          const row = result[0].rows.item(i);
-          readings.push({
-            x: row.x,
-            y: row.y,
-            z: row.z,
-            magnitude: row.magnitude,
-            secondCounter: row.second_counter,
-            sampleIndex: row.sample_index,
-          });
-        }
-
-        console.log(`📊 Loaded ${readings.length} downsampled accelerometer readings (first sample from every ${secondCounterInterval}th secondCounter)`);
-        return readings;
-      } catch (error) {
-        console.error('Failed to get downsampled accelerometer readings:', error);
-        return [];
+      const readings: BufferedAccelerometerData[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        readings.push({
+          x: row.x,
+          y: row.y,
+          z: row.z,
+          magnitude: row.magnitude,
+          secondCounter: row.second_counter,
+          sampleIndex: row.sample_index,
+        });
       }
-    } else {
-      // AsyncStorage fallback - manually filter
-      try {
-        const key = `${this.LEGACY_STORAGE_KEY}_accel_${sessionId}`;
-        const data = await AsyncStorage.getItem(key);
-        if (!data) return [];
 
-        const readings = JSON.parse(data);
-        const downsampled = readings.filter((r: any) => 
-          r.sampleIndex === 0 && r.secondCounter % secondCounterInterval === 0
-        );
-        return downsampled.map((r: any) => ({
-          ...r,
-          timestamp: new Date(r.timestamp),
-          unit: 'g' as const,
-        }));
-      } catch (error) {
-        console.error('Failed to get downsampled accelerometer readings from AsyncStorage:', error);
-        return [];
-      }
+      return readings;
+    } catch (error) {
+      console.error('Failed to get downsampled accelerometer readings:', error);
+      return [];
     }
   }
 
@@ -1268,22 +977,11 @@ export class DataManager {
   }
 
   static async clearAllData(): Promise<void> {
-    if (this.usingSQLite && this.db) {
-      try {
-        await this.db.executeSql('DELETE FROM sensor_readings');
-        await this.db.executeSql('DELETE FROM monitoring_sessions');
-      } catch (error) {
-        console.error('Failed to clear SQLite data:', error);
-      }
-    }
-    
-    // Also clear AsyncStorage
     try {
-      await AsyncStorage.removeItem(this.ENHANCED_READINGS_KEY);
-      await AsyncStorage.removeItem(this.SESSIONS_STORAGE_KEY);
-      await AsyncStorage.removeItem(this.LEGACY_STORAGE_KEY);
+      await this.db.executeSql('DELETE FROM sensor_readings');
+      await this.db.executeSql('DELETE FROM monitoring_sessions');
     } catch (error) {
-      console.error('Failed to clear AsyncStorage data:', error);
+      console.error('Failed to clear data:', error);
     }
   }
 
@@ -1297,51 +995,21 @@ export class DataManager {
 
   // Delete a session and all its readings
   static async deleteSession(sessionId: string): Promise<void> {
-    if (this.usingSQLite && this.db) {
-      try {
-        // Delete readings first (foreign key relationship)
-        await this.db.executeSql(
-          'DELETE FROM sensor_readings WHERE session_id = ?',
-          [sessionId]
-        );
+    try {
+      // Delete readings first (foreign key relationship)
+      await this.db.executeSql(
+        'DELETE FROM sensor_readings WHERE session_id = ?',
+        [sessionId]
+      );
 
-        // Then delete session
-        await this.db.executeSql(
-          'DELETE FROM monitoring_sessions WHERE id = ?',
-          [sessionId]
-        );
-      } catch (error) {
-        console.error('Failed to delete session from SQLite:', error);
-        throw error;
-      }
-    } else {
-      // AsyncStorage fallback
-      try {
-        // Delete session
-        const sessionsData = await AsyncStorage.getItem(this.SESSIONS_STORAGE_KEY);
-        if (sessionsData) {
-          const sessions = JSON.parse(sessionsData);
-          const filteredSessions = sessions.filter((s: any) => s.id !== sessionId);
-          await AsyncStorage.setItem(
-            this.SESSIONS_STORAGE_KEY,
-            JSON.stringify(filteredSessions)
-          );
-        }
-
-        // Delete readings
-        const readingsData = await AsyncStorage.getItem(this.ENHANCED_READINGS_KEY);
-        if (readingsData) {
-          const readings = JSON.parse(readingsData);
-          const filteredReadings = readings.filter((r: any) => r.sessionId !== sessionId);
-          await AsyncStorage.setItem(
-            this.ENHANCED_READINGS_KEY,
-            JSON.stringify(filteredReadings)
-          );
-        }
-      } catch (error) {
-        console.error('Failed to delete session from AsyncStorage:', error);
-        throw error;
-      }
+      // Then delete session
+      await this.db.executeSql(
+        'DELETE FROM monitoring_sessions WHERE id = ?',
+        [sessionId]
+      );
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      throw error;
     }
   }
 
@@ -1663,30 +1331,15 @@ export class DataManager {
       let firstReading: Date | null = null;
       let lastReading: Date | null = null;
 
-      if (this.usingSQLite && this.db) {
-        // Fast count query (no data loading)
-        const countResult = await this.db.executeSql(
-          'SELECT COUNT(*) as count, MIN(timestamp) as first, MAX(timestamp) as last FROM sensor_readings WHERE session_id = ?',
-          [sessionId]
-        );
-        if (countResult && countResult.length > 0) {
-          const row = countResult[0].rows.item(0);
-          readingCount = row.count;
-          firstReading = row.first ? new Date(row.first) : null;
-          lastReading = row.last ? new Date(row.last) : null;
-        }
-      } else {
-        // AsyncStorage - still need to load but only count
-        const data = await AsyncStorage.getItem(this.ENHANCED_READINGS_KEY);
-        if (data) {
-          const readings = JSON.parse(data).filter((r: any) => r.sessionId === sessionId);
-          readingCount = readings.length;
-          if (readings.length > 0) {
-            const timestamps = readings.map((r: any) => new Date(r.timestamp).getTime());
-            firstReading = new Date(Math.min(...timestamps));
-            lastReading = new Date(Math.max(...timestamps));
-          }
-        }
+      const countResult = await this.db.executeSql(
+        'SELECT COUNT(*) as count, MIN(timestamp) as first, MAX(timestamp) as last FROM sensor_readings WHERE session_id = ?',
+        [sessionId]
+      );
+      if (countResult && countResult.length > 0) {
+        const row = countResult[0].rows.item(0);
+        readingCount = row.count;
+        firstReading = row.first ? new Date(row.first) : null;
+        lastReading = row.last ? new Date(row.last) : null;
       }
 
       const duration = lastReading && firstReading
@@ -1713,59 +1366,35 @@ export class DataManager {
     oldestReading: Date | null;
     newestReading: Date | null;
     databaseSize: string;
-    storageType: 'SQLite' | 'AsyncStorage';
+    storageType: 'SQLite';
   }> {
     let totalReadings = 0;
     let totalSessions = 0;
     let oldestReading: Date | null = null;
     let newestReading: Date | null = null;
 
-    if (this.usingSQLite && this.db) {
-      try {
-        // Count total readings
-        const countResult = await this.db.executeSql(
-          'SELECT COUNT(*) as count FROM sensor_readings'
-        );
-        totalReadings = countResult[0].rows.item(0).count;
+    try {
+      // Count total readings
+      const countResult = await this.db.executeSql(
+        'SELECT COUNT(*) as count FROM sensor_readings'
+      );
+      totalReadings = countResult[0].rows.item(0).count;
 
-        // Count total sessions
-        const sessionCountResult = await this.db.executeSql(
-          'SELECT COUNT(*) as count FROM monitoring_sessions'
-        );
-        totalSessions = sessionCountResult[0].rows.item(0).count;
+      // Count total sessions
+      const sessionCountResult = await this.db.executeSql(
+        'SELECT COUNT(*) as count FROM monitoring_sessions'
+      );
+      totalSessions = sessionCountResult[0].rows.item(0).count;
 
-        // Get oldest and newest readings
-        const rangeResult = await this.db.executeSql(
-          'SELECT MIN(timestamp) as oldest, MAX(timestamp) as newest FROM sensor_readings'
-        );
-        const range = rangeResult[0].rows.item(0);
-        oldestReading = range.oldest ? new Date(range.oldest) : null;
-        newestReading = range.newest ? new Date(range.newest) : null;
-      } catch (error) {
-        console.error('Failed to get SQLite stats:', error);
-      }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const readingsData = await AsyncStorage.getItem(this.ENHANCED_READINGS_KEY);
-        if (readingsData) {
-          const readings = JSON.parse(readingsData);
-          totalReadings = readings.length;
-          if (readings.length > 0) {
-            const timestamps = readings.map((r: any) => new Date(r.timestamp).getTime());
-            oldestReading = new Date(Math.min(...timestamps));
-            newestReading = new Date(Math.max(...timestamps));
-          }
-        }
-
-        const sessionsData = await AsyncStorage.getItem(this.SESSIONS_STORAGE_KEY);
-        if (sessionsData) {
-          const sessions = JSON.parse(sessionsData);
-          totalSessions = sessions.length;
-        }
-      } catch (error) {
-        console.error('Failed to get AsyncStorage stats:', error);
-      }
+      // Get oldest and newest readings
+      const rangeResult = await this.db.executeSql(
+        'SELECT MIN(timestamp) as oldest, MAX(timestamp) as newest FROM sensor_readings'
+      );
+      const range = rangeResult[0].rows.item(0);
+      oldestReading = range.oldest ? new Date(range.oldest) : null;
+      newestReading = range.newest ? new Date(range.newest) : null;
+    } catch (error) {
+      console.error('Failed to get database stats:', error);
     }
 
     // Estimate database size (rough calculation)
@@ -1779,7 +1408,7 @@ export class DataManager {
       oldestReading,
       newestReading,
       databaseSize,
-      storageType: this.usingSQLite ? 'SQLite' : 'AsyncStorage',
+      storageType: 'SQLite' as const,
     };
   }
 
@@ -1788,73 +1417,42 @@ export class DataManager {
     const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
     let deletedCount = 0;
 
-    if (this.usingSQLite && this.db) {
-      try {
-        // Delete old sensor readings
-        const result = await this.db.executeSql(
-          'DELETE FROM sensor_readings WHERE timestamp < ?',
-          [cutoffTime]
-        );
-        deletedCount = result[0].rowsAffected;
+    try {
+      // Delete old sensor readings
+      const result = await this.db.executeSql(
+        'DELETE FROM sensor_readings WHERE timestamp < ?',
+        [cutoffTime]
+      );
+      deletedCount = result[0].rowsAffected;
 
-        // Delete old accelerometer readings (IMPORTANT: This table grows fastest!)
-        // Delete by session_id since accelerometer_readings doesn't have timestamp
-        const accelResult = await this.db.executeSql(
-          `DELETE FROM accelerometer_readings 
-           WHERE session_id IN (
-             SELECT id FROM monitoring_sessions WHERE start_time < ?
-           )`,
-          [cutoffTime]
-        );
-        console.log(`🗑️ Deleted ${accelResult[0].rowsAffected} old accelerometer readings`);
+      // Delete old accelerometer readings
+      // Delete by session_id since accelerometer_readings doesn't have timestamp
+      await this.db.executeSql(
+        `DELETE FROM accelerometer_readings 
+         WHERE session_id IN (
+           SELECT id FROM monitoring_sessions WHERE start_time < ?
+         )`,
+        [cutoffTime]
+      );
 
-        // Delete old sessions
-        await this.db.executeSql(
-          'DELETE FROM monitoring_sessions WHERE start_time < ?',
-          [cutoffTime]
-        );
-
-        console.log(`🗑️ Deleted ${deletedCount} old sensor readings and associated data`);
-      } catch (error) {
-        console.error('Failed to clean old SQLite data:', error);
-      }
-    } else {
-      // AsyncStorage fallback
-      try {
-        const readingsData = await AsyncStorage.getItem(this.ENHANCED_READINGS_KEY);
-        if (readingsData) {
-          const readings = JSON.parse(readingsData);
-          const filtered = readings.filter((r: any) =>
-            new Date(r.timestamp).getTime() >= cutoffTime
-          );
-          deletedCount = readings.length - filtered.length;
-          await AsyncStorage.setItem(this.ENHANCED_READINGS_KEY, JSON.stringify(filtered));
-        }
-
-        const sessionsData = await AsyncStorage.getItem(this.SESSIONS_STORAGE_KEY);
-        if (sessionsData) {
-          const sessions = JSON.parse(sessionsData);
-          const filtered = sessions.filter((s: any) =>
-            new Date(s.startTime).getTime() >= cutoffTime
-          );
-          await AsyncStorage.setItem(this.SESSIONS_STORAGE_KEY, JSON.stringify(filtered));
-        }
-      } catch (error) {
-        console.error('Failed to clean old AsyncStorage data:', error);
-      }
+      // Delete old sessions
+      await this.db.executeSql(
+        'DELETE FROM monitoring_sessions WHERE start_time < ?',
+        [cutoffTime]
+      );
+    } catch (error) {
+      console.error('Failed to clean old data:', error);
     }
 
     return deletedCount;
   }
 
   static async optimizeDatabase(): Promise<void> {
-    if (this.usingSQLite && this.db) {
-      try {
-        await this.db.executeSql('VACUUM');
-        await this.db.executeSql('ANALYZE');
-      } catch (error) {
-        console.error('Failed to optimize database:', error);
-      }
+    try {
+      await this.db.executeSql('VACUUM');
+      await this.db.executeSql('ANALYZE');
+    } catch (error) {
+      console.error('Failed to optimize database:', error);
     }
   }
 
