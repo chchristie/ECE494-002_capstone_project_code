@@ -28,7 +28,6 @@ type AccelerometerScreenProps = SimpleNavigationProps & {
 const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, route }) => {
   const [readings, setReadings] = useState<AccelReading[]>([]);
   const [maxMagnitude, setMaxMagnitude] = useState(0);
-  const [isSimulating, setIsSimulating] = useState(false);
   const { state, sensorData, isConnected } = useBluetooth();
 
   // Update readings from real sensor data
@@ -54,42 +53,6 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
       });
     }
   }, [sensorData.accelerometer, isConnected]);
-
-  // Simulated accelerometer data for testing
-  useEffect(() => {
-    if (isSimulating && !isConnected) {
-      const interval = setInterval(() => {
-        try {
-          // Simulate realistic accelerometer motion (gravity + small movements)
-          const baseGravity = 1.0; // 1g from gravity
-          const randomMotion = (Math.random() - 0.5) * 0.3; // Small random movements
-
-          const x = (Math.random() - 0.5) * 0.2 + randomMotion;
-          const y = (Math.random() - 0.5) * 0.2 + randomMotion;
-          const z = baseGravity + (Math.random() - 0.5) * 0.15; // Gravity primarily on Z-axis
-          const magnitude = Math.sqrt(x * x + y * y + z * z);
-
-          const newReading: AccelReading = {
-            x: parseFloat(x.toFixed(0)),
-            y: parseFloat(y.toFixed(0)),
-            z: parseFloat(z.toFixed(0)),
-            magnitude: parseFloat(magnitude.toFixed(0)),
-          };
-
-          setReadings(prev => {
-            const updated = [...prev.slice(-29), newReading];
-            const maxMag = Math.max(...updated.map(r => r.magnitude));
-            setMaxMagnitude(maxMag);
-            return updated;
-          });
-        } catch (error) {
-          console.error('Accelerometer simulation error:', error);
-        }
-      }, 1000); // Update every second
-
-      return () => clearInterval(interval);
-    }
-  }, [isSimulating, isConnected]);
 
   // Calculate statistics
   const stats = React.useMemo(() => {
@@ -279,26 +242,6 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
           </View>
         )}
 
-        {/* Simulation Button (when not connected) */}
-        {!isConnected && (
-          <TouchableOpacity
-            style={[
-              styles.simulationButton,
-              { backgroundColor: isSimulating ? theme.colors.error : theme.colors.primary }
-            ]}
-            onPress={() => setIsSimulating(!isSimulating)}
-          >
-            <Icon
-              name={isSimulating ? 'stop' : 'play-arrow'}
-              size={20}
-              color={theme.colors.onPrimary}
-            />
-            <Text style={styles.simulationButtonText}>
-              {isSimulating ? 'Stop Simulation' : 'Start Simulation'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
         {/* Info Card */}
         <View style={styles.infoCard}>
           <Icon name="info-outline" size={20} color={theme.colors.secondary} />
@@ -306,7 +249,6 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
             <Text style={styles.infoText}>
               Accelerometer measures device movement in 3D space.
               1g ≈ gravity (9.8 m/s²). Higher magnitude indicates more movement.
-              {!isConnected && ' Tap "Start Simulation" to see simulated sensor data.'}
             </Text>
           </View>
         </View>
@@ -493,22 +435,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 16,
     paddingHorizontal: 40,
-  },
-  simulationButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    marginBottom: 16,
-    elevation: 2,
-    gap: 8,
-  },
-  simulationButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.onPrimary,
   },
 });
 

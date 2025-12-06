@@ -6,85 +6,43 @@ export const STANDARD_SERVICES = {
   HEART_RATE: '180D',
   DEVICE_INFORMATION: '180A',
   BATTERY_SERVICE: '180F',
-  PULSE_OXIMETER: '1822', // Standard SpO2 service
+  PULSE_OXIMETER: '1822',
 } as const;
 
 // Standard BLE Characteristic UUIDs (16-bit format)
 export const STANDARD_CHARACTERISTICS = {
-  // Heart Rate Service
   HEART_RATE_MEASUREMENT: '2A37',
-  BODY_SENSOR_LOCATION: '2A38',
-  HEART_RATE_CONTROL_POINT: '2A39',
-  
-  // Battery Service
   BATTERY_LEVEL: '2A19',
-  
-  // Device Information Service
-  MANUFACTURER_NAME: '2A29',
-  MODEL_NUMBER: '2A24',
-  SERIAL_NUMBER: '2A25',
-  FIRMWARE_REVISION: '2A26',
-  HARDWARE_REVISION: '2A27',
-  
-  // Pulse Oximeter Service (if using standard)
-  PLX_SPOT_CHECK_MEASUREMENT: '2A5E',
   PLX_CONTINUOUS_MEASUREMENT: '2A5F',
-  PLX_FEATURES: '2A60',
 } as const;
 
-// SeedStudio Custom Service UUIDs (corrected based on documentation)
+// Custom Service UUIDs
 export const SEEDSTUDIO_SERVICES = {
-  // Primary Seeed Studio service pattern (from MR60BHA1/MR60BHA2 examples)
   RADAR_SERVICE: '19B10000-E8F2-537E-4F6C-D104768A1214',
-
-  // Nordic UART Service / Custom Accelerometer Service (buffered data via UART_TX)
-  NORDIC_UART: '6E400001-B5A3-F393-E0A9-E50E24DCCA9E',
-  CUSTOM_ACCEL_SERVICE: '6E400001-B5A3-F393-E0A9-E50E24DCCA9E', // Same as NORDIC_UART
-
-  // Alternative short UUID patterns (if device uses these)
-  SENSOR_DATA: 'FF10',
-  CONFIGURATION: 'FF20',
+  ACCELEROMETER_SERVICE: '6E400001-B5A3-F393-E0A9-E50E24DCCA9E',
 } as const;
 
 export const SEEDSTUDIO_CHARACTERISTICS = {
-  // Primary Seeed Studio characteristic (documented pattern)
-  SENSOR_DATA: '19B10001-E8F2-537E-4F6C-D104768A1214',
-
-  // Nordic UART characteristics (common on nRF52840 devices)
-  UART_TX: '6E400002-B5A3-F393-E0A9-E50E24DCCA9E', // Device to phone (accelerometer)
-  UART_RX: '6E400003-B5A3-F393-E0A9-E50E24DCCA9E', // Phone to device
-  
-  // Miscellaneous data characteristic (status, confidence, voltage)
-  MISC_DATA: '6E400004-B5A3-F393-E0A9-E50E24DCCA9E', // Device to phone
-
-  // Time synchronization characteristic (phone writes timestamp to Arduino)
-  TIME_SYNC: '6E400010-B5A3-F393-E0A9-E50E24DCCA9E',
-
-  // Additional custom characteristics
-  SPO2_DATA: 'FF11',
-  SENSOR_CONFIG: 'FF21',
-  CALIBRATION: 'FF22',
+  ACCELEROMETER_DATA: '6E400002-B5A3-F393-E0A9-E50E24DCCA9E',
+  MISC_DATA: '6E400004-B5A3-F393-E0A9-E50E24DCCA9E',
 } as const;
 
-// Complete service map for Nordic device detection
+// Device detection profile
 export const NORDIC_DEVICE_PROFILE = {
-  // Required services (must have at least one)
   requiredServices: [
     STANDARD_SERVICES.HEART_RATE,
     SEEDSTUDIO_SERVICES.RADAR_SERVICE,
-    SEEDSTUDIO_SERVICES.NORDIC_UART,
+    SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE,
   ],
   
-  // Optional services (nice to have)
   optionalServices: [
     STANDARD_SERVICES.BATTERY_SERVICE,
     STANDARD_SERVICES.DEVICE_INFORMATION,
     STANDARD_SERVICES.PULSE_OXIMETER,
   ],
   
-  // Nordic manufacturer data indicators
   manufacturerIndicators: {
-    nordicCompanyId: 0x0059, // Nordic Semiconductor company identifier
+    nordicCompanyId: 0x0059,
     seedStudioPatterns: ['SeedStudio', 'Grove', 'HeartRate', 'SpO2', 'MR60BHA'],
   },
 } as const;
@@ -501,7 +459,7 @@ export const isNordicDevice = (device: any): boolean => {
   
   const hasSeedStudioService = advertisedServices.some((service: string) => 
     service.includes(SEEDSTUDIO_SERVICES.RADAR_SERVICE) ||
-    service.includes(SEEDSTUDIO_SERVICES.NORDIC_UART)
+    service.includes(SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE)
   );
   
   // Check manufacturer data for Nordic company ID

@@ -252,7 +252,7 @@ const isNordicDevice = (device: any): boolean => {
   );
 
   const hasNordicUartService = advertisedServices.some((service: string) =>
-    uuidMatches(service, SEEDSTUDIO_SERVICES.NORDIC_UART)
+    uuidMatches(service, SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE)
   );
 
   // Check manufacturer data for Nordic company ID
@@ -405,15 +405,15 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
         }
 
         // Parse Miscellaneous data (status, confidence, voltage) - using NordicDataParser
-        else if (uuidMatches(service, SEEDSTUDIO_SERVICES.CUSTOM_ACCEL_SERVICE) &&
+        else if (uuidMatches(service, SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE) &&
                  uuidMatches(characteristic, SEEDSTUDIO_CHARACTERISTICS.MISC_DATA)) {
           const buffer = new Uint8Array(value);
           miscUpdate = NordicDataParser.parseMiscData(buffer, state.connectedDevice.id);
         }
 
         // Parse buffered accelerometer data (124 bytes) from custom service
-        else if (uuidMatches(service, SEEDSTUDIO_SERVICES.CUSTOM_ACCEL_SERVICE) &&
-                 uuidMatches(characteristic, SEEDSTUDIO_CHARACTERISTICS.UART_TX)) {
+        else if (uuidMatches(service, SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE) &&
+                 uuidMatches(characteristic, SEEDSTUDIO_CHARACTERISTICS.ACCELEROMETER_DATA)) {
           const buffer = new Uint8Array(value);
           
           // Parse all 20 samples from the 124-byte packet
@@ -761,12 +761,6 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
         }
       }
 
-      try {
-        await syncTimeWithArduino(deviceId);
-      } catch (error) {
-        console.error('Could not sync time with Arduino:', error);
-      }
-
       dispatch({ type: 'SET_CONNECTED_DEVICE', payload: connectedDevice });
 
       // Auto-subscribe to all characteristics
@@ -794,42 +788,6 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
       dispatch({ type: 'SET_CONNECTING', payload: false });
     }
   }, [state.availableDevices]);
-
-  const syncTimeWithArduino = useCallback(async (deviceId: string): Promise<void> => {
-    try {
-      const peripheralInfo = await BleManager.retrieveServices(deviceId);
-      const characteristics = (peripheralInfo as any).characteristics || [];
-
-      // Find time sync characteristic (6E400010-B5A3-F393-E0A9-E50E24DCCA9E)
-      const timeSyncChar = characteristics.find((char: any) =>
-        char.characteristic.toUpperCase().includes('6E400010')
-      );
-
-      if (!timeSyncChar) {
-        return;
-      }
-
-      // Get current timestamp in milliseconds
-      const timestampMs = Date.now();
-
-      // Convert to 8-byte little-endian array
-      const timestampBytes: number[] = [];
-      for (let i = 0; i < 8; i++) {
-        timestampBytes.push((timestampMs >> (i * 8)) & 0xFF);
-      }
-
-      // Write timestamp to Arduino
-      await BleManager.write(
-        deviceId,
-        timeSyncChar.service,
-        timeSyncChar.characteristic,
-        timestampBytes
-      );
-    } catch (error) {
-      console.error('Time sync error:', error);
-      throw error;
-    }
-  }, []);
 
   const disconnectDevice = useCallback(async (): Promise<void> => {
     if (!state.connectedDevice) return;
@@ -1024,18 +982,12 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
       const peripheralInfo = await BleManager.retrieveServices(targetDeviceId);
       const characteristics = (peripheralInfo as any).characteristics || [];
 
-      // Look for UART_TX characteristic (6E400002) in custom service (6E400001)
-      const accelChar = characteristics.find((char: any) => {
-        const charUUID = char.characteristic.toUpperCase().replace(/-/g, '');
-        const serviceUUID = char.service.toUpperCase().replace(/-/g, '');
-        
-        // Check for UART_TX characteristic in custom service
-        return (charUUID.includes('6E400002') || charUUID === '6E400002B5A3F393E0A9E50E24DCCA9E') &&
-               (serviceUUID.includes('6E400001') || serviceUUID === '6E400001B5A3F393E0A9E50E24DCCA9E');
-      });
+      const accelChar = characteristics.find((char: any) =>
+        uuidMatches(char.service, SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE) &&
+        uuidMatches(char.characteristic, SEEDSTUDIO_CHARACTERISTICS.ACCELEROMETER_DATA)
+      );
 
       if (!accelChar) {
-        console.log('⚠️ Accelerometer characteristic not found (6E400002 in service 6E400001)');
         return false;
       }
 
@@ -1043,7 +995,6 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
                        accelChar.properties?.Notify === "Notify";
 
       if (!hasNotify) {
-        console.log('⚠️ Accelerometer characteristic does not support notifications');
         return false;
       }
 
@@ -1052,8 +1003,6 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
         accelChar.service,
         accelChar.characteristic
       );
-
-      console.log('✅ Subscribed to accelerometer notifications (UART_TX)');
 
       if (state.connectedDevice) {
         state.connectedDevice.subscriptions.add('accelerometer');
