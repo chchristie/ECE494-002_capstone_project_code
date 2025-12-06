@@ -91,6 +91,7 @@ BLECharacteristic pulseOxFeatures = BLECharacteristic(0x2A60);  // PLX Features
 BLEService customService = BLEService("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
 BLECharacteristic accelChar = BLECharacteristic("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
 BLECharacteristic miscDataChar = BLECharacteristic("6E400004-B5A3-F393-E0A9-E50E24DCCA9E");
+BLECharacteristic controlChar = BLECharacteristic("6E400005-B5A3-F393-E0A9-E50E24DCCA9E");
 
 // Tracking for comparison
 unsigned long connectionStartTime = 0;
@@ -275,6 +276,12 @@ void initBluetooth() {
   miscDataChar.setCccdWriteCallback(cccd_callback);
   miscDataChar.begin();
 
+  // Control Characteristic (device control commands)
+  controlChar.setProperties(CHR_PROPS_WRITE | CHR_PROPS_READ);
+  controlChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  controlChar.setFixedLen(2);  // 2 bytes: byte 0 = sensor reset flag, byte 1 = device reset flag
+  controlChar.begin();
+
   // Advertising Setup
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addTxPower();
@@ -421,6 +428,31 @@ void loop() {
           accelStoredBuffZ[i] = accelBuffZ[i];
         }
         sendAccelerometerDataToBiohub();
+        
+        // Check control characteristic for commands (only every 10 seconds)
+        if (secondCounter % 10 == 0 && Bluefruit.connected()) {
+          uint8_t controlData[2];
+          uint16_t len = controlChar.read(controlData, 2);
+          
+          if (len >= 2) {
+            // Check for sensor reset flag (byte 0)
+            if (controlData[0] == 1) {
+              Serial.println("Reset biosensor command received");
+              controlData[0] = 0;
+              controlChar.write(controlData, 2);
+              initBiosensor();
+            }
+            
+            // Check for device reset flag (byte 1)
+            if (controlData[1] == 1) {
+              Serial.println("System reset command received");
+              controlData[1] = 0;
+              controlChar.write(controlData, 2);
+              delay(100);  // Small delay to allow serial to flush
+              NVIC_SystemReset();
+            }
+          }
+        }
         break;
       }
 

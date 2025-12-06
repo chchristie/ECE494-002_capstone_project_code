@@ -189,6 +189,7 @@ interface BluetoothContextValue {
   subscribeToSpO2: (deviceId?: string) => Promise<boolean>;
   subscribeToBattery: (deviceId?: string) => Promise<boolean>;
   subscribeToAccelerometer: (deviceId?: string) => Promise<boolean>;
+  writeControlCharacteristic: (sensorReset: boolean, deviceReset: boolean) => Promise<boolean>;
   getNordicDevices: () => DiscoveredDevice[];
   getConnectionQuality: () => number;
 }
@@ -989,6 +990,54 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
     return state.availableDevices.filter(device => device.isNordic);
   }, [state.availableDevices]);
 
+  const writeControlCharacteristic = useCallback(async (
+    sensorReset: boolean,
+    deviceReset: boolean
+  ): Promise<boolean> => {
+    const targetDeviceId = state.connectedDevice?.id;
+    if (!targetDeviceId) {
+      return false;
+    }
+
+    try {
+      const peripheralInfo = await BleManager.retrieveServices(targetDeviceId);
+      const characteristics = (peripheralInfo as any).characteristics || [];
+
+      const controlChar = characteristics.find((char: any) =>
+        uuidMatches(char.characteristic, SEEDSTUDIO_CHARACTERISTICS.CONTROL) &&
+        uuidMatches(char.service, SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE)
+      );
+
+      if (!controlChar) {
+        return false;
+      }
+
+      const hasWrite = controlChar.properties?.Write === true ||
+                      controlChar.properties?.Write === "Write";
+
+      if (!hasWrite) {
+        return false;
+      }
+
+      // Create 2-byte buffer: byte 0 = sensor reset, byte 1 = device reset
+      const data = new Uint8Array(2);
+      data[0] = sensorReset ? 1 : 0;
+      data[1] = deviceReset ? 1 : 0;
+
+      await BleManager.write(
+        targetDeviceId,
+        controlChar.service,
+        controlChar.characteristic,
+        Array.from(data)
+      );
+
+      return true;
+    } catch (error) {
+      console.error('Failed to write control characteristic:', error);
+      return false;
+    }
+  }, [state.connectedDevice]);
+
   const getConnectionQuality = useCallback((): number => {
     if (!state.connectedDevice) return 0;
     
@@ -1019,6 +1068,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
     subscribeToSpO2,
     subscribeToBattery,
     subscribeToAccelerometer,
+    writeControlCharacteristic,
     getNordicDevices,
     getConnectionQuality,
   }), [
@@ -1035,6 +1085,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
     subscribeToSpO2,
     subscribeToBattery,
     subscribeToAccelerometer,
+    writeControlCharacteristic,
     getNordicDevices,
     getConnectionQuality,
   ]);

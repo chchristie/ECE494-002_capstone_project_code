@@ -48,6 +48,7 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
     connectToDevice,
     disconnectDevice,
     getNordicDevices,
+    writeControlCharacteristic,
   } = useBluetooth();
 
   const nordicDevices = getNordicDevices();
@@ -383,6 +384,79 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
               trackColor={{ false: theme.colors.outline, true: theme.colors.primary }}
               thumbColor={accelerometerEnabled ? theme.colors.surface : theme.colors.surfaceVariant}
             />
+          </View>
+
+          {/* Device Control Buttons */}
+          <View style={styles.controlButtonsContainer}>
+            <TouchableOpacity
+              style={[styles.controlButton, !isConnected && styles.controlButtonDisabled]}
+              onPress={async () => {
+                if (!isConnected) {
+                  Alert.alert('Not Connected', 'Please connect to a device first.');
+                  return;
+                }
+                Alert.alert(
+                  'Reset Biosensor',
+                  'This will reset the biosensor and reinitialize it. Continue?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Reset',
+                      style: 'destructive',
+                      onPress: async () => {
+                        const success = await writeControlCharacteristic(true, false);
+                        if (success) {
+                          Alert.alert('Success', 'Biosensor reset command sent.');
+                        } else {
+                          Alert.alert('Error', 'Failed to send reset command. Please try again.');
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+              disabled={!isConnected}
+            >
+              <Icon name="refresh" size={24} color={isConnected ? theme.colors.primary : theme.colors.outline} />
+              <Text style={[styles.controlButtonText, !isConnected && styles.controlButtonTextDisabled]}>
+                Reset Biosensor
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.controlButton, styles.controlButtonDanger, !isConnected && styles.controlButtonDisabled]}
+              onPress={async () => {
+                if (!isConnected) {
+                  Alert.alert('Not Connected', 'Please connect to a device first.');
+                  return;
+                }
+                Alert.alert(
+                  'Reset Device',
+                  'This will restart the Arduino device. All data collection will stop until it reconnects. Continue?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Reset',
+                      style: 'destructive',
+                      onPress: async () => {
+                        const success = await writeControlCharacteristic(false, true);
+                        if (success) {
+                          Alert.alert('Success', 'Device reset command sent. The device will restart shortly.');
+                        } else {
+                          Alert.alert('Error', 'Failed to send reset command. Please try again.');
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+              disabled={!isConnected}
+            >
+              <Icon name="power-settings-new" size={24} color={isConnected ? theme.colors.error : theme.colors.outline} />
+              <Text style={[styles.controlButtonText, styles.controlButtonTextDanger, !isConnected && styles.controlButtonTextDisabled]}>
+                Reset Device
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -1100,6 +1174,37 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     minWidth: 60,
     textAlign: 'right',
+  },
+  controlButtonsContainer: {
+    marginTop: 16,
+    gap: 12,
+  },
+  controlButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primaryContainer,
+    padding: 14,
+    borderRadius: 8,
+    gap: 8,
+  },
+  controlButtonDisabled: {
+    backgroundColor: theme.colors.surfaceVariant,
+    opacity: 0.5,
+  },
+  controlButtonDanger: {
+    backgroundColor: theme.colors.errorContainer,
+  },
+  controlButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  controlButtonTextDanger: {
+    color: theme.colors.error,
+  },
+  controlButtonTextDisabled: {
+    color: theme.colors.onSurfaceVariant,
   },
 });
 
