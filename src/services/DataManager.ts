@@ -75,7 +75,6 @@ export interface ExportOptions {
 
 export class DataManager {
   private static db: any = null;
-  private static accelTableEnsured: boolean = false;
   private static readonly DB_NAME = 'nordic_sensor_data.db';
   private static readonly RETENTION_HOURS = 24;
 
@@ -88,16 +87,12 @@ export class DataManager {
 
       if (this.db) {
         await this.createTables();
-        await this.ensureAccelerometerTableExists();
       }
     } catch (error) {
       console.error('SQLite initialization failed:', error);
       throw error;
     }
   }
-
-  // Database version for migrations
-  private static readonly DB_VERSION = 7; // Added battery_voltage and sensor_confidence columns
 
   // Create database tables (SQLite only)
   private static async createTables(): Promise<void> {
@@ -139,7 +134,6 @@ export class DataManager {
       CREATE TABLE IF NOT EXISTS accelerometer_readings (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
-        device_id TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
         second_counter INTEGER NOT NULL,
         sample_index INTEGER NOT NULL,
@@ -155,309 +149,32 @@ export class DataManager {
     try {
       await this.db.executeSql(createSensorReadingsTable);
       await this.db.executeSql(createSessionsTable);
-      await this.db.executeSql(createAccelerometerTable);
-      // await this.runMigrations();
-    } catch (error) {
-      console.error('Failed to create SQLite tables:', error);
-      this.db = null;
-      throw error;
-    }
-  }
-
-  // **NEW: Database Migration System**
-  private static async runMigrations(): Promise<void> {
-    if (!this.db) {
-      return;
-    }
-
-    try {
-      // Get current database version
-      const versionResult = await this.db.executeSql(
-        `SELECT name FROM sqlite_master WHERE type='table' AND name='db_version'`
-      );
-
-      let currentVersion = 1;
-      if (versionResult[0].rows.length > 0) {
-        const verData = await this.db.executeSql('SELECT version FROM db_version LIMIT 1');
-        if (verData[0].rows.length > 0) {
-          currentVersion = verData[0].rows.item(0).version;
-        }
-      } else {
-        // Create version table
-        await this.db.executeSql(`
-          CREATE TABLE IF NOT EXISTS db_version (
-            version INTEGER PRIMARY KEY
-          )
-        `);
-        await this.db.executeSql('INSERT INTO db_version (version) VALUES (1)');
-      }
-
-      if (currentVersion < 2) {
-        await this.migrateToV2();
-        currentVersion = 2;
-      }
-      if (currentVersion < 3) {
-        await this.migrateToV3();
-        currentVersion = 3;
-      }
-      if (currentVersion < 4) {
-        await this.migrateToV4();
-        currentVersion = 4;
-      }
-      if (currentVersion < 5) {
-        await this.migrateToV5();
-        currentVersion = 5;
-      }
-      if (currentVersion < 6) {
-        await this.migrateToV6();
-        currentVersion = 6;
-      }
-      if (currentVersion < 7) {
-        await this.migrateToV7();
-        currentVersion = 7;
-      }
-
-      if (currentVersion < this.DB_VERSION) {
-        await this.db.executeSql('UPDATE db_version SET version = ?', [this.DB_VERSION]);
-      }
-
-      // Safety: ensure accelerometer table exists even if version metadata says it should
-      await this.ensureAccelerometerTableExists();
-    } catch (error) {
-      console.error('Migration error:', error);
-      // Don't throw - allow app to continue even if migration fails
-    }
-  }
-
-  private static async migrateToV2(): Promise<void> {
-    if (!this.db) return;
-
-    try {
-      const tableInfo = await this.db.executeSql('PRAGMA table_info(sensor_readings)');
-      const columns = [];
-      for (let i = 0; i < tableInfo[0].rows.length; i++) {
-        columns.push(tableInfo[0].rows.item(i).name);
-      }
-
-      if (!columns.includes('accel_x')) {
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN accel_x REAL');
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN accel_y REAL');
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN accel_z REAL');
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN accel_magnitude REAL');
-      }
-    } catch (error) {
-      console.error('Failed to migrate to v2:', error);
-      throw error;
-    }
-  }
-
-  private static async migrateToV3(): Promise<void> {
-    if (!this.db) return;
-
-    try {
-      const tableInfo = await this.db.executeSql('PRAGMA table_info(sensor_readings)');
-      const columns = [];
-      for (let i = 0; i < tableInfo[0].rows.length; i++) {
-        columns.push(tableInfo[0].rows.item(i).name);
-      }
-
-      if (!columns.includes('accel_raw_x')) {
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN accel_raw_x INTEGER');
-      }
-      if (!columns.includes('accel_raw_y')) {
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN accel_raw_y INTEGER');
-      }
-      if (!columns.includes('accel_raw_z')) {
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN accel_raw_z INTEGER');
-      }
-    } catch (error) {
-      console.error('Failed to migrate to v3:', error);
-      throw error;
-    }
-  }
-
-  private static async migrateToV4(): Promise<void> {
-    if (!this.db) return;
-
-    try {
-      console.log('🔄 [Migration] Starting v4 migration - removing signal quality columns');
-      console.log('⚠️  [Migration] This will delete all existing sensor data');
       
-      // Drop old tables
-      await this.db.executeSql('DROP TABLE IF EXISTS sensor_readings');
-      await this.db.executeSql('DROP TABLE IF EXISTS monitoring_sessions');
-      
-      console.log('✅ [Migration] Old tables dropped');
-      
-      // Recreate tables with new schema (without signal quality)
-      const createSensorReadingsTable = `
-        CREATE TABLE sensor_readings (
-          id TEXT PRIMARY KEY,
-          session_id TEXT NOT NULL,
-          device_id TEXT NOT NULL,
-          timestamp INTEGER NOT NULL,
-          heart_rate INTEGER,
-          hr_contact_detected INTEGER,
-          hr_rr_intervals TEXT,
-          spo2_value INTEGER,
-          spo2_pulse_rate INTEGER,
-          battery_level INTEGER,
-          accel_raw_x INTEGER,
-          accel_raw_y INTEGER,
-          accel_raw_z INTEGER,
-          accel_x REAL,
-          accel_y REAL,
-          accel_z REAL,
-          accel_magnitude REAL,
-          raw_data TEXT,
-          created_at INTEGER DEFAULT (strftime('%s', 'now'))
-        )
-      `;
-
-      const createSessionsTable = `
-        CREATE TABLE monitoring_sessions (
-          id TEXT PRIMARY KEY,
-          start_time INTEGER NOT NULL,
-          end_time INTEGER,
-          device_name TEXT,
-          notes TEXT,
-          data_count INTEGER DEFAULT 0,
-          is_active INTEGER DEFAULT 1,
-          created_at INTEGER DEFAULT (strftime('%s', 'now'))
-        )
-      `;
-
-      await this.db.executeSql(createSensorReadingsTable);
-      await this.db.executeSql(createSessionsTable);
-      
-      console.log('✅ [Migration] New tables created without signal quality columns');
-      console.log('✅ [Migration] v4 migration complete');
-    } catch (error) {
-      console.error('❌ [Migration] Failed to migrate to v4:', error);
-      throw error;
-    }
-  }
-
-  private static async ensureAccelerometerTableExists(): Promise<void> {
-    if (!this.db) return;
-
-    try {
-      // Drop existing table to recreate with correct schema
+      // Drop accelerometer table if it exists to ensure correct schema
       await this.db.executeSql('DROP TABLE IF EXISTS accelerometer_readings');
-      
-      const createAccelerometerTable = `
-        CREATE TABLE IF NOT EXISTS accelerometer_readings (
-          id TEXT PRIMARY KEY,
-          session_id TEXT NOT NULL,
-          second_counter INTEGER NOT NULL,
-          sample_index INTEGER NOT NULL,
-          x INTEGER NOT NULL,
-          y INTEGER NOT NULL,
-          z INTEGER NOT NULL,
-          magnitude INTEGER NOT NULL,
-          FOREIGN KEY (session_id) REFERENCES monitoring_sessions(id) ON DELETE CASCADE
-        )
-      `;
-      
       await this.db.executeSql(createAccelerometerTable);
       
-      // Create indices for faster queries
+      // Create indices for accelerometer table
       await this.db.executeSql(`
         CREATE INDEX IF NOT EXISTS idx_accel_session 
         ON accelerometer_readings(session_id)
       `);
       
       await this.db.executeSql(`
+        CREATE INDEX IF NOT EXISTS idx_accel_timestamp 
+        ON accelerometer_readings(timestamp)
+      `);
+      
+      await this.db.executeSql(`
         CREATE INDEX IF NOT EXISTS idx_accel_second_counter 
         ON accelerometer_readings(second_counter)
       `);
-            
-      console.log('✅ [DB] Accelerometer table ensured');
-      this.accelTableEnsured = true;
     } catch (error) {
-      console.error('❌ [DB] Failed to ensure accelerometer table:', error);
+      console.error('Failed to create SQLite tables:', error);
+      this.db = null;
       throw error;
     }
   }
-
-  private static async migrateToV5(): Promise<void> {
-    if (!this.db) return;
-
-    try {
-      console.log('🔄 [Migration] Starting v5 migration - creating separate accelerometer table');
-      
-      await this.ensureAccelerometerTableExists();
-      
-      console.log('✅ [Migration] v5 migration complete');
-    } catch (error) {
-      console.error('❌ [Migration] Failed to migrate to v5:', error);
-      throw error;
-    }
-  }
-
-  private static async migrateToV6(): Promise<void> {
-    if (!this.db) return;
-
-    try {
-      console.log('🔄 [Migration] Starting v6 migration - removing RR intervals and accelerometer columns');
-      console.log('⚠️  [Migration] This will drop and recreate sensor_readings table');
-      
-      // Drop old sensor_readings table
-      await this.db.executeSql('DROP TABLE IF EXISTS sensor_readings');
-      
-      console.log('✅ [Migration] Old sensor_readings table dropped');
-      
-      // Recreate sensor_readings without RR intervals and accelerometer columns
-      const createSensorReadingsTable = `
-        CREATE TABLE sensor_readings (
-          id TEXT PRIMARY KEY,
-          session_id TEXT NOT NULL,
-          device_id TEXT NOT NULL,
-          timestamp INTEGER NOT NULL,
-          heart_rate INTEGER,
-          hr_contact_detected INTEGER,
-          spo2_value INTEGER,
-          spo2_pulse_rate INTEGER,
-          battery_level INTEGER,
-          raw_data TEXT,
-          created_at INTEGER DEFAULT (strftime('%s', 'now'))
-        )
-      `;
-
-      await this.db.executeSql(createSensorReadingsTable);
-      
-      console.log('✅ [Migration] New sensor_readings table created without RR intervals and accelerometer columns');
-      console.log('✅ [Migration] v6 migration complete');
-    } catch (error) {
-      console.error('❌ [Migration] Failed to migrate to v6:', error);
-      throw error;
-    }
-  }
-
-  private static async migrateToV7(): Promise<void> {
-    if (!this.db) return;
-
-    try {
-      // Check if columns already exist
-      const tableInfo = await this.db.executeSql(`PRAGMA table_info(sensor_readings)`);
-      const columns = tableInfo[0].rows.raw().map((row: any) => row.name);
-      
-      // Add battery_voltage column if it doesn't exist
-      if (!columns.includes('battery_voltage')) {
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN battery_voltage REAL');
-      }
-      
-      // Add sensor_confidence column if it doesn't exist
-      if (!columns.includes('sensor_confidence')) {
-        await this.db.executeSql('ALTER TABLE sensor_readings ADD COLUMN sensor_confidence INTEGER');
-      }
-    } catch (error) {
-      console.error('Failed to migrate to v7:', error);
-      throw error;
-    }
-  }
-
-
   // Session Management
   static async createSession(deviceName?: string, notes?: string): Promise<MonitoringSession> {
     const session: MonitoringSession = {
@@ -688,14 +405,16 @@ export class DataManager {
 
     const sql = `
       INSERT INTO accelerometer_readings
-      (id, session_id, second_counter, sample_index, x, y, z, magnitude)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (id, session_id, timestamp, second_counter, sample_index, x, y, z, magnitude)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
+    const timestamp = Date.now();
     for (const sample of samples) {
       const values = [
         this.generateId(),
         sessionId,
+        timestamp,
         sample.secondCounter,
         sample.sampleIndex,
         sample.x,
@@ -840,7 +559,7 @@ export class DataManager {
   }
 
   // Get accelerometer readings from separate table
-  static async getAccelerometerReadings(sessionId: string, limit?: number, offset?: number): Promise<BufferedAccelerometerData[]> {
+  static async getAccelerometerReadings(sessionId: string, limit?: number, offset?: number): Promise<(BufferedAccelerometerData & { timestamp: number })[]> {
     try {
       let query = `SELECT * FROM accelerometer_readings 
          WHERE session_id = ? 
@@ -858,7 +577,7 @@ export class DataManager {
 
       const result = await this.db.executeSql(query, params);
 
-      const readings: BufferedAccelerometerData[] = [];
+      const readings: (BufferedAccelerometerData & { timestamp: number })[] = [];
       for (let i = 0; i < result[0].rows.length; i++) {
         const row = result[0].rows.item(i);
         readings.push({
@@ -868,6 +587,7 @@ export class DataManager {
           magnitude: row.magnitude,
           secondCounter: row.second_counter,
           sampleIndex: row.sample_index,
+          timestamp: row.timestamp,
         });
       }
 
@@ -883,7 +603,7 @@ export class DataManager {
   static async getAccelerometerReadingsDownsampled(
     sessionId: string, 
     secondCounterInterval: number = 10
-  ): Promise<BufferedAccelerometerData[]> {
+  ): Promise<(BufferedAccelerometerData & { timestamp: number })[]> {
     try {
       // Get first sample (sample_index = 0) from every Nth secondCounter using modulus
       const result = await this.db.executeSql(
@@ -895,7 +615,7 @@ export class DataManager {
         [sessionId, secondCounterInterval]
       );
 
-      const readings: BufferedAccelerometerData[] = [];
+      const readings: (BufferedAccelerometerData & { timestamp: number })[] = [];
       for (let i = 0; i < result[0].rows.length; i++) {
         const row = result[0].rows.item(i);
         readings.push({
@@ -905,6 +625,7 @@ export class DataManager {
           magnitude: row.magnitude,
           secondCounter: row.second_counter,
           sampleIndex: row.sample_index,
+          timestamp: row.timestamp,
         });
       }
 
@@ -1255,10 +976,13 @@ export class DataManager {
       }
 
       // CSV header for accelerometer data
-      let csv = 'Second_Counter,Sample_Index,X_mG,Y_mG,Z_mG,Magnitude_mG\n';
+      let csv = 'Timestamp_Unix_ms,Timestamp_ISO,Second_Counter,Sample_Index,X_mG,Y_mG,Z_mG,Magnitude_mG\n';
 
       for (const reading of accelReadings) {
+        const timestamp = new Date(reading.timestamp);
         const row = [
+          reading.timestamp,
+          timestamp.toISOString(),
           reading.secondCounter,
           reading.sampleIndex,
           reading.x,
@@ -1295,6 +1019,8 @@ export class DataManager {
           notes: session.notes,
         },
         accelerometerReadings: accelReadings.map(reading => ({
+          timestamp: reading.timestamp,
+          timestampISO: new Date(reading.timestamp).toISOString(),
           secondCounter: reading.secondCounter,
           sampleIndex: reading.sampleIndex,
           x: reading.x,

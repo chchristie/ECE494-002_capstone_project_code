@@ -464,6 +464,18 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
     });
   };
 
+  const formatTimestampWithMs = (timestamp: number): string => {
+    const date = new Date(timestamp);
+    const timeString = date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const ms = date.getMilliseconds().toString().padStart(3, '0');
+    return `${timeString}.${ms}`;
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -555,7 +567,7 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
                     </View>
                   ) : (
                     <View style={styles.tableRow}>
-                      <Text style={[styles.tableHeader, styles.dataColumn]}>Counter</Text>
+                      <Text style={[styles.tableHeader, styles.timeColumn]}>Time</Text>
                       <Text style={[styles.tableHeader, styles.dataColumn]}>Index</Text>
                       <Text style={[styles.tableHeader, styles.dataColumn]}>X (mG)</Text>
                       <Text style={[styles.tableHeader, styles.dataColumn]}>Y (mG)</Text>
@@ -604,8 +616,8 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
                       // Accelerometer readings have different structure
                       return (
                         <View key={index} style={[styles.tableRow, index % 2 === 0 && styles.tableRowEven]}>
-                          <Text style={[styles.tableCell, styles.dataColumn]}>
-                            {reading.secondCounter ?? '-'}
+                          <Text style={[styles.tableCell, styles.timeColumn]}>
+                            {reading.timestamp ? formatTimestampWithMs(reading.timestamp) : '-'}
                           </Text>
                           <Text style={[styles.tableCell, styles.dataColumn]}>
                             {reading.sampleIndex ?? '-'}
