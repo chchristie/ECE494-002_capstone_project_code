@@ -27,25 +27,6 @@ export const SEEDSTUDIO_CHARACTERISTICS = {
   MISC_DATA: '6E400004-B5A3-F393-E0A9-E50E24DCCA9E',
 } as const;
 
-// Device detection profile
-export const NORDIC_DEVICE_PROFILE = {
-  requiredServices: [
-    STANDARD_SERVICES.HEART_RATE,
-    SEEDSTUDIO_SERVICES.RADAR_SERVICE,
-    SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE,
-  ],
-  
-  optionalServices: [
-    STANDARD_SERVICES.BATTERY_SERVICE,
-    STANDARD_SERVICES.DEVICE_INFORMATION,
-    STANDARD_SERVICES.PULSE_OXIMETER,
-  ],
-  
-  manufacturerIndicators: {
-    nordicCompanyId: 0x0059,
-    seedStudioPatterns: ['SeedStudio', 'Grove', 'HeartRate', 'SpO2', 'MR60BHA'],
-  },
-} as const;
 
 // Data parsing interfaces following user's TypeScript strict preferences
 export interface HeartRateData {
@@ -437,47 +418,13 @@ export class NordicDataParser {
   }
 }
 
-// Enhanced Nordic device identification
-export const isNordicDevice = (device: any): boolean => {
-  const deviceName = device.name?.toLowerCase() || '';
-  const advertisedServices = device.advertising?.serviceUUIDs || [];
-  
-  // Check for Nordic/SeedStudio name patterns
-  const nameIndicators = [
-    'nordic', 'nrf52', 'seedstudio', 'grove', 
-    'heartrate', 'spo2', 'oximeter', 'pulse', 'mr60bha'
-  ];
-  
-  const hasMatchingName = nameIndicators.some(indicator => 
-    deviceName.includes(indicator)
-  );
-  
-  // Check for required services (both standard and SeedStudio)
-  const hasHeartRateService = advertisedServices.some((service: string) => 
-    service.toUpperCase().includes(STANDARD_SERVICES.HEART_RATE)
-  );
-  
-  const hasSeedStudioService = advertisedServices.some((service: string) => 
-    service.includes(SEEDSTUDIO_SERVICES.RADAR_SERVICE) ||
-    service.includes(SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE)
-  );
-  
-  // Check manufacturer data for Nordic company ID
-  const manufacturerData = device.advertising?.manufacturerData;
-  const hasNordicManufacturer = manufacturerData && 
-    Object.keys(manufacturerData).includes(NORDIC_DEVICE_PROFILE.manufacturerIndicators.nordicCompanyId.toString());
-  
-  return hasMatchingName || hasHeartRateService || hasSeedStudioService || hasNordicManufacturer;
-};
 
 export default {
   STANDARD_SERVICES,
   STANDARD_CHARACTERISTICS,
   SEEDSTUDIO_SERVICES,
   SEEDSTUDIO_CHARACTERISTICS,
-  NORDIC_DEVICE_PROFILE,
   NordicDataParser,
-  isNordicDevice,
   isValidHeartRateData,
   isValidSpO2Data,
 };

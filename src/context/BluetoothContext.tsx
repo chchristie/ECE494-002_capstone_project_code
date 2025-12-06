@@ -227,47 +227,21 @@ const uuidMatches = (uuid1: string, uuid2: string): boolean => {
   return false;
 };
 
-// Enhanced Nordic device detection with broader patterns
-const isNordicDevice = (device: any): boolean => {
-  const deviceName = device.name?.toLowerCase() || '';
-  const deviceId = device.id?.toLowerCase() || '';
-
-  // Expanded Nordic/SeedStudio device patterns
-  const nordicNameIndicators = [
-    'nordic', 'nrf52', 'nrf', 'seedstudio', 'seed', 'grove',
-    'heartrate', 'heart', 'hr', 'spo2', 'oximeter', 'pulse',
-    'sensor', 'ble', 'nano', 'xiao', 'esp32'
-  ];
-
-  // Check device name
-  const hasMatchingName = nordicNameIndicators.some(indicator =>
-    deviceName.includes(indicator)
-  );
-
-  // Check advertising services if available (with case-insensitive comparison)
+// Check if device advertises HRM or SpO2 service
+const isCompatibleDevice = (device: any): boolean => {
   const advertisedServices = device.advertising?.serviceUUIDs || [];
+  
   const hasHeartRateService = advertisedServices.some((service: string) =>
     uuidMatches(service, STANDARD_SERVICES.HEART_RATE) ||
     uuidMatches(service, `0000${STANDARD_SERVICES.HEART_RATE}`)
   );
 
-  const hasNordicUartService = advertisedServices.some((service: string) =>
-    uuidMatches(service, SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE)
+  const hasSpO2Service = advertisedServices.some((service: string) =>
+    uuidMatches(service, STANDARD_SERVICES.PULSE_OXIMETER) ||
+    uuidMatches(service, `0000${STANDARD_SERVICES.PULSE_OXIMETER}`)
   );
 
-  // Check manufacturer data for Nordic company ID
-  const manufacturerData = device.advertising?.manufacturerData;
-  const hasNordicManufacturer = manufacturerData &&
-    Object.keys(manufacturerData).includes('89'); // Nordic Semiconductor ID: 0x0059 = 89
-
-  // For development: Allow devices with "Unknown" name or specific MAC patterns
-  const isUnknownDevice = deviceName === 'unknown device' || deviceName === '';
-  const hasNordicMacPattern = deviceId.match(/^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}/i);
-
-  const isNordic = hasMatchingName || hasHeartRateService || hasNordicUartService ||
-                   hasNordicManufacturer || (isUnknownDevice && hasNordicMacPattern);
-
-  return isNordic;
+  return hasHeartRateService || hasSpO2Service;
 };
 
 // NOTE: All data parsing now uses NordicDataParser for consistency
@@ -334,10 +308,9 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
         name: peripheral.name || 'Unknown Device',
         rssi: peripheral.rssi,
         lastSeen: new Date(),
-        isNordic: isNordicDevice(peripheral),
+        isNordic: isCompatibleDevice(peripheral),
       };
 
-      // Add ALL Nordic devices, not just ones with specific names
       if (device.isNordic) {
         dispatch({ type: 'ADD_DISCOVERED_DEVICE', payload: device });
       }
@@ -688,11 +661,9 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
         throw new Error('Bluetooth is not enabled');
       }
 
-      // Scan for multiple service types to catch different Nordic implementations
       const scanServices = [
         STANDARD_SERVICES.HEART_RATE,      // '180D'
-        STANDARD_SERVICES.BATTERY_SERVICE, // '180F'
-        STANDARD_SERVICES.DEVICE_INFORMATION, // '180A'
+        STANDARD_SERVICES.PULSE_OXIMETER,  // '1822'
       ];
 
       await BleManager.scan(scanServices, 20, true);
