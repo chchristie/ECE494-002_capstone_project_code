@@ -177,10 +177,12 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
       return accelData;
     }
 
-    const cutoffTime = new Date();
-    cutoffTime.setHours(cutoffTime.getHours() - currentRange.hours);
+    const cutoffTime = Date.now() - (currentRange.hours * 60 * 60 * 1000);
 
-    return accelData.filter(r => r.timestamp >= cutoffTime);
+    return accelData.filter(r => {
+      const timestamp = typeof r.timestamp === 'number' ? r.timestamp : r.timestamp.getTime();
+      return timestamp >= cutoffTime;
+    });
   }, [accelData, selectedRange]);
 
   // Prepare chart data (sampled for performance)
@@ -192,19 +194,19 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     // Heart Rate data - Map zero or missing values to null to create gaps in the plot
     const hrData = sampled.map(r => ({
       value: (r.heartRate !== undefined && r.heartRate.value > 0) ? r.heartRate.value : null,
-      timestamp: r.timestamp
+      timestamp: r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp)
     }));
 
     // SpO2 data - Map zero or missing values to null to create gaps in the plot
     const spO2Data = sampled.map(r => ({
       value: (r.spO2 !== undefined && r.spO2.value > 0) ? r.spO2.value : null,
-      timestamp: r.timestamp
+      timestamp: r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp)
     }));
 
     // Accelerometer magnitude data - from separate accelerometer table (already downsampled)
     const accelChartData = filteredAccelData.map(r => ({
       value: r.magnitude,
-      timestamp: r.timestamp
+      timestamp: typeof r.timestamp === 'number' ? r.timestamp : r.timestamp.getTime()
     }));
 
     return { hrData, spO2Data, accelData: accelChartData };

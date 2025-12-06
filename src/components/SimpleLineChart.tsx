@@ -6,7 +6,7 @@ import { theme } from '../styles/theme';
 
 interface ChartData {
   value: number | null;  // null values create breaks in the line
-  timestamp?: Date;
+  timestamp?: Date | number;  // Date object or milliseconds timestamp
 }
 
 interface SimpleLineChartProps {
@@ -241,7 +241,8 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
   });
 
   // Format time label (show HH:MM:SS)
-  const formatTime = (date: Date) => {
+  const formatTime = (timestamp: Date | number) => {
+    const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
     return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
