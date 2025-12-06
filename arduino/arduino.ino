@@ -67,6 +67,9 @@ float vbat = 0.0;
 int batteryLevel = 0;
 
 //*******************************************************************************************************************
+#define CONN_TX_POWER 4
+#define ADVERTISING_TX_POWER -20
+
 // Bluetooth Services and Characteristics
 BLEDis bledis;
 
@@ -95,27 +98,9 @@ unsigned long connectionStartTime = 0;
 bool connectedFlag = false;
 
 //*******************************************************************************************************************
-void setup() {
+// Initialization Functions
 
-// Serial port initialization
-Serial.begin(115200);
-  while (!Serial && millis() < 5000); // Wait max 5 seconds for serial
-
-  Serial.println("Serial initialized");
-
-  // Initialize Watchdog Timer for stability
-  initWatchdog();
-  Serial.println("Watchdog timer initialized (10 second timeout)");
-
-  // I2C initialization
-  Wire.begin();
-  Wire.setClock(400000); // 400kHz I2C speed for reliability
-  Serial.println("I2C initialized at 400kHz");
-
-  // RTC initialization
-  initRTC(32768 * SLEEP_TIME / 1000);
-  Serial.println("RTC initialized");
-
+void initBatteryMonitoring() {
   // Battery monitoring pin configuration
   pinMode(PIN_VBAT, INPUT);
   pinMode(PIN_VBAT_ENABLE, OUTPUT);
@@ -124,8 +109,9 @@ Serial.begin(115200);
   digitalWrite(PIN_VBAT_ENABLE, HIGH);  // Start with divider disabled to save power
   digitalWrite(PIN_HICHG, LOW); // 100 mA charge current
   Serial.println("Battery monitoring pins configured");
+}
 
-  //*************************************************************************************
+void initAccelerometer() {
   // Configure accelerometer
   myIMU.settings.accelEnabled = 1;
   myIMU.settings.accelRange = 2; // ±2g
@@ -143,8 +129,9 @@ Serial.begin(115200);
   else {
     Serial.println("IMU initialized successfully!");
   }
+}
 
-  //************************************************************************************************************************************************************************************
+uint8_t initBiosensor() {
   // Biosensor setup with error recovery
   Serial.println("Initializing MAX30101 biosensor...");
 
@@ -152,7 +139,8 @@ Serial.begin(115200);
     Serial.println("Biosensor started!");
   } 
   else {
-    Serial.println("Failed to initialize biosensor - continuing");
+    Serial.println("Failed to initialize biosensor -- returning");
+    return 1;
   }
 
   Serial.println("Configuring Biosensor....");
@@ -163,11 +151,13 @@ Serial.begin(115200);
   else {
     Serial.print("Warning: Error configuring sensor: ");
     Serial.println(error);
+    return 1;
   }
 
   // Enable host side accelerometer
   if (!enableHostSideAccelerometer()) {
     Serial.println("Failed to configure biosensor for host side accelerometer");
+    return 1;
   } else {
     Serial.println("Biosensor configured for host side accelerometer");
   }
@@ -177,6 +167,7 @@ Serial.begin(115200);
   if (error != 0) {
     Serial.print("Warning: Could not set biosensor sample rate: ");
     Serial.println(error);
+    return 1;
   } 
   else {
     Serial.print("Biosensor sample rate set to ");
@@ -188,22 +179,27 @@ Serial.begin(115200);
   if (error != 0) {
     Serial.print("Warning: Could not set biosensor pulse width: ");
     Serial.println(error);
+    return 1;
   } 
   else {
     Serial.print("Biosensor pulse width set to ");
     Serial.println(bioHub.readPulseWidth());
   }
 
-  //************************************************************************************************************************************************************************************
-  // Bluetooth Initialization
+  Serial.println("Loading biosensor buffer with initial data...");
+  delay(4000);
+  return 0;
+}
 
+void initBluetooth() {
+  // Bluetooth Initialization
   Serial.println("Initializing Bluetooth...");
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
   Bluefruit.begin();
-  Bluefruit.setTxPower(4);
-  Bluefruit.setName("HeartRate_SpO2_Accel");
-  Bluefruit.autoConnLed(false);
+  Bluefruit.setTxPower(ADVERTISING_TX_POWER);
+  Bluefruit.setName("XIAO Health Monitor");
+  Bluefruit.autoConnLed(false); // Disable blinking blue LED when waiting for connection
 
   // Set low power mode to prevent deep sleep that kills BLE connection
   sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
@@ -215,6 +211,7 @@ Serial.begin(115200);
   bledis.setManufacturer("SeedStudio");
   bledis.setModel("XIAO_nRF52840");
   bledis.begin();
+
   Serial.println("Device Information Service started");
 
   // Battery Service (0x180F) - Custom implementation
@@ -225,6 +222,7 @@ Serial.begin(115200);
   batteryChar.setFixedLen(1);
   batteryChar.setCccdWriteCallback(cccd_callback);
   batteryChar.begin();
+
   Serial.println("Battery Service (0x180F) started");
 
   // Heart Rate Service (0x180D)
@@ -241,6 +239,7 @@ Serial.begin(115200);
   bodySensorLocation.setFixedLen(1);
   bodySensorLocation.begin();
   bodySensorLocation.write16(0); // Other location
+
   Serial.println("Heart Rate Service (0x180D) started");
 
   // Pulse Oximeter Service (0x1822)
@@ -258,7 +257,6 @@ Serial.begin(115200);
   pulseOxFeatures.begin();
   pulseOxFeatures.write16(0); // No extra features
 
-
   Serial.println("Pulse Oximeter Service (0x1822) started");
 
   // Custom Accelerometer Service - Buffered data transmission
@@ -270,16 +268,12 @@ Serial.begin(115200);
   accelChar.setCccdWriteCallback(cccd_callback);
   accelChar.begin();
 
-  Serial.println("Custom Accelerometer Service started");
-
   // Miscellaneous Data Characteristic (status, confidence, voltage, charging)
   miscDataChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
   miscDataChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   miscDataChar.setFixedLen(5);  // 5 bytes: status, confidence, voltage_low, voltage_high, charging
   miscDataChar.setCccdWriteCallback(cccd_callback);
   miscDataChar.begin();
-
-  Serial.println("Miscellaneous Data Characteristic started");
 
   // Advertising Setup
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
@@ -293,33 +287,37 @@ Serial.begin(115200);
   Bluefruit.Advertising.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 3200);
+  Bluefruit.Advertising.setInterval(32, 1600);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
+}
 
-  Serial.println("Advertising started with all services");
-  Serial.println(" - Heart Rate (0x180D)");
-  Serial.println(" - Battery (0x180F)");
-  Serial.println(" - Pulse Oximeter (0x1822)");
-  Serial.println(" - Motion (0x1819) - 14-byte format");
+//*******************************************************************************************************************
+void setup() {
 
-  // Print address
-  Serial.print("Device address: ");
-  uint8_t addr[6];
-  Bluefruit.getAddr(addr);
-  for (int i = 5; i >= 0; i--) {
-    if (addr[i] < 16) {
-      Serial.print("0");
-      Serial.print(addr[i], HEX);
-    }
-    if (i > 0) Serial.print(":");
-  }
-  Serial.println("");
+  // Serial port initialization
+  Serial.begin(115200);
+  while (!Serial && millis() < 5000); // Wait max 5 seconds for serial
+
+  Serial.println("Serial initialized");
+
+  // Initialize Watchdog Timer for stability
+  initWatchdog();
+  Serial.println("Watchdog timer initialized (10 second timeout)");
+
+  // I2C initialization
+  Wire.begin();
+  Wire.setClock(400000); // 400kHz I2C speed for reliability
+  Serial.println("I2C initialized at 400kHz");
+
+  // RTC initialization
+  initRTC(32768 * SLEEP_TIME / 1000);
+  initBatteryMonitoring();
+  initAccelerometer();
+  initBiosensor();
+  initBluetooth();
 
   //************************************************************************************************************************************************************************************
-  Serial.println("Loading biosensor buffer with initial data...");
-  delay(4000);
-
   Serial.println("===========================================");
   Serial.println("Setup complete! Ready for connections.");
   Serial.println("All sensors operational:");
@@ -327,7 +325,6 @@ Serial.begin(115200);
   Serial.println("- SpO2 sensor");
   Serial.println("- Battery monitor");
   Serial.println("- Accelerometer");
-  Serial.println("- Timestamp support");
   Serial.println("Waiting for React Native app connection...");
   Serial.println("===========================================");
 }
@@ -417,13 +414,12 @@ void loop() {
         intCounter = 0;
         secondCounter++;
         
-        // Copy raw buffer data to stored buffers (updated only every 200ms)
+        // Copy raw buffer data to stored buffers
         for (int i = 0; i < 20; i++) {
           accelStoredBuffX[i] = accelBuffX[i];
           accelStoredBuffY[i] = accelBuffY[i];
           accelStoredBuffZ[i] = accelBuffZ[i];
         }
-        
         sendAccelerometerDataToBiohub();
         break;
       }
@@ -434,19 +430,7 @@ void loop() {
     }
     if (biosensorErrorCount > MAX_BIOSENSOR_ERRORS) {
       Serial.println("Too many biosensor errors - restarting biosensor...");
-
-      // Sequence to reset biosensor
-      pinMode(resPin, OUTPUT);
-      pinMode(mfioPin, OUTPUT);
-      digitalWrite(mfioPin, HIGH);
-      digitalWrite(resPin, LOW);
-      delay(10);
-      digitalWrite(resPin, HIGH);
-      delay(1000);
-      pinMode(mfioPin, INPUT_PULLUP);
-      requestBiohubStatus();
-      delay(2);
-      if (readBiohubStatus() == 0) {
+      if (initBiosensor() == 0) {
         Serial.println("Biosensor successfully reset - resuming program.");
         Serial.println("Loading biosensor buffer with initial data...");
         delay(4000);
@@ -517,6 +501,8 @@ void initRTC(unsigned long count30) {
   NVIC_SetPriority(RTC2_IRQn, 3);
   NVIC_EnableIRQ(RTC2_IRQn);
   NRF_RTC2->TASKS_START = 1;
+
+  Serial.println("RTC initialized");
 }
 
 //**************************************************************************************************************
@@ -780,9 +766,10 @@ void connect_callback(uint16_t conn_handle) {
   delayMicroseconds(1000000);  // delay a bit for all the request to complete
   Serial.print(" --> "); Serial.println(connection->getConnectionInterval());
 
+  Bluefruit.setTxPower(CONN_TX_POWER);
+
   char central_name[32] = { 0 };
   connection->getPeerName(central_name, sizeof(central_name));
-
   Serial.print("【connect_callback】 Connected to ");
   Serial.println(central_name);
 
@@ -798,6 +785,9 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
 
   Serial.print("Disconnected, reason = 0x");
   Serial.println(reason, HEX);
+
+  Bluefruit.setTxPower(ADVERTISING_TX_POWER);
+
   Serial.println("Advertising restarted - ready for new connection");
 
   connectedFlag = false;

@@ -37,7 +37,6 @@ export interface EnhancedSensorReading {
   heartRate?: {
     value: number;
     contactDetected: boolean;
-    rrIntervals?: number[];
   };
   spO2?: {
     value: number;
@@ -839,7 +838,6 @@ export class DataManager {
       heartRate: heartRateData ? {
         value: heartRateData.heartRate,
         contactDetected: heartRateData.contactDetected,
-        rrIntervals: heartRateData.rrIntervals,
       } : undefined,
       spO2: spO2Data ? {
         value: spO2Data.spO2,
@@ -1217,7 +1215,6 @@ export class DataManager {
       heartRate: row.heart_rate !== null && row.heart_rate !== undefined ? {
         value: row.heart_rate,
         contactDetected: Boolean(row.hr_contact_detected),
-        rrIntervals: undefined, // RR intervals removed from schema
       } : undefined,
       spO2: row.spo2_value !== null && row.spo2_value !== undefined ? {
         value: row.spo2_value,

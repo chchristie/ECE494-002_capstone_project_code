@@ -8,9 +8,6 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  FlatList,
-  Platform,
-  PermissionsAndroid,
   Switch,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';

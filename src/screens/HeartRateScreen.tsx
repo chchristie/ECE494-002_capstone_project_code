@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   Animated,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -20,7 +19,6 @@ import { Heart3D } from '../components/3DHeart';
 import { SimpleGradientText } from '../components/GradientText';
 import { ConnectionPulse } from '../components/ParticleEffects';
 import { theme } from '../styles/theme';
-import { calculateHRV, interpretHRV, type HRVMetrics } from '../utils/hrvCalculations';
 
 interface HeartRateReading {
   value: number;
@@ -109,8 +107,6 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
     max: 0,
     zone: 'resting',
   });
-  const [hrvMetrics, setHrvMetrics] = useState<HRVMetrics | null>(null);
-  const [rrIntervals, setRRIntervals] = useState<number[]>([]);
 
   const { state, sensorData, isConnected } = useBluetooth();
 
@@ -171,24 +167,8 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
       };
 
       setReadings(prev => [...prev.slice(-19), realReading]);
-
-      // Collect RR intervals for HRV calculation
-      if (sensorData.heartRate.rrIntervals && sensorData.heartRate.rrIntervals.length > 0) {
-        setRRIntervals(prev => {
-          const updated = [...prev, ...sensorData.heartRate!.rrIntervals!];
-          return updated.slice(-100); // Keep last 100 intervals
-        });
-      }
     }
   }, [sensorData.heartRate, isConnected]);
-
-  // Calculate HRV when we have enough RR intervals
-  useEffect(() => {
-    if (rrIntervals.length >= 10) {
-      const hrv = calculateHRV(rrIntervals);
-      setHrvMetrics(hrv);
-    }
-  }, [rrIntervals]);
 
   // Update stats when readings change
   useEffect(() => {
@@ -440,73 +420,6 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
             )}
           </NeumorphicCard>
         </View>
-
-        {/* HRV Display - Only show if data available */}
-        {isConnected && hrvMetrics && (
-          <View style={styles.hrvContainer}>
-            <View style={styles.hrvHeader}>
-              <Icon name="favorite" size={20} color={theme.colors.tertiary} />
-              <Text style={styles.hrvTitle}>Heart Rate Variability (HRV)</Text>
-            </View>
-
-            <View style={styles.hrvMetricsGrid}>
-              <View style={styles.hrvMetricCard}>
-                <Text style={styles.hrvMetricLabel}>RMSSD</Text>
-                <Text
-                  style={[
-                    styles.hrvMetricValue,
-                    {
-                      color:
-                        hrvMetrics.rmssd < 20
-                          ? theme.colors.error
-                          : hrvMetrics.rmssd > 50
-                          ? theme.colors.success
-                          : theme.colors.warning,
-                    },
-                  ]}
-                >
-                  {hrvMetrics.rmssd.toFixed(1)}
-                </Text>
-                <Text style={styles.hrvMetricUnit}>ms</Text>
-              </View>
-
-              <View style={styles.hrvMetricCard}>
-                <Text style={styles.hrvMetricLabel}>SDNN</Text>
-                <Text
-                  style={[
-                    styles.hrvMetricValue,
-                    {
-                      color:
-                        hrvMetrics.sdnn < 50
-                          ? theme.colors.error
-                          : hrvMetrics.sdnn > 100
-                          ? theme.colors.success
-                          : theme.colors.warning,
-                    },
-                  ]}
-                >
-                  {hrvMetrics.sdnn.toFixed(1)}
-                </Text>
-                <Text style={styles.hrvMetricUnit}>ms</Text>
-              </View>
-
-              <View style={styles.hrvMetricCard}>
-                <Text style={styles.hrvMetricLabel}>pNN50</Text>
-                <Text style={styles.hrvMetricValue}>
-                  {hrvMetrics.pnn50.toFixed(1)}
-                </Text>
-                <Text style={styles.hrvMetricUnit}>%</Text>
-              </View>
-            </View>
-
-            <View style={styles.hrvInfo}>
-              <Icon name="info-outline" size={14} color={theme.colors.onSurfaceVariant} />
-              <Text style={styles.hrvInfoText}>
-                {interpretHRV(hrvMetrics).overallStatus} - Based on {hrvMetrics.validSamples} samples
-              </Text>
-            </View>
-          </View>
-        )}
 
         {/* Chart */}
         {readings.length > 0 ? (
@@ -776,69 +689,6 @@ const styles = StyleSheet.create({
   spO2DetailText: {
     fontSize: 12,
     color: theme.colors.onSurfaceVariant,
-  },
-  hrvContainer: {
-    backgroundColor: theme.colors.surfaceVariant,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: theme.colors.tertiary,
-  },
-  hrvHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    gap: 8,
-  },
-  hrvTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.onSurface,
-  },
-  hrvMetricsGrid: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
-  },
-  hrvMetricCard: {
-    flex: 1,
-    backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-    elevation: 1,
-  },
-  hrvMetricLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: theme.colors.onSurfaceVariant,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  hrvMetricValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: theme.colors.tertiary,
-    marginBottom: 2,
-  },
-  hrvMetricUnit: {
-    fontSize: 11,
-    color: theme.colors.onSurfaceVariant,
-  },
-  hrvInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.outline,
-  },
-  hrvInfoText: {
-    fontSize: 12,
-    color: theme.colors.onSurfaceVariant,
-    flex: 1,
   },
   buttonContainer: {
     gap: 12,

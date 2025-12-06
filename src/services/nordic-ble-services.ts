@@ -94,7 +94,6 @@ export interface HeartRateData {
   heartRate: number;          // BPM (beats per minute)
   contactDetected: boolean;   // Sensor contact with skin
   energyExpended?: number;    // Optional energy in kJ
-  rrIntervals?: number[];     // R-R intervals for HRV analysis
   timestamp: Date;
   deviceId: string;
 }
@@ -278,7 +277,6 @@ export class NordicDataParser {
       const hrFormat16Bit = (flags & 0x01) !== 0;
       const contactDetected = (flags & 0x06) === 0x06;
       const energyExpendedPresent = (flags & 0x08) !== 0;
-      const rrIntervalsPresent = (flags & 0x10) !== 0;
       
       let offset = 1;
       let heartRate: number;
@@ -302,22 +300,10 @@ export class NordicDataParser {
         }
       }
       
-      // Parse optional R-R intervals
-      let rrIntervals: number[] | undefined;
-      if (rrIntervalsPresent) {
-        rrIntervals = [];
-        while (offset + 1 < data.length) {
-          const rrInterval = data[offset] | (data[offset + 1] << 8);
-          rrIntervals.push(rrInterval * 1024 / 1000); // Convert to milliseconds
-          offset += 2;
-        }
-      }
-      
       const result: HeartRateData = {
         heartRate,
         contactDetected,
         energyExpended,
-        rrIntervals,
         timestamp: new Date(),
         deviceId,
       };

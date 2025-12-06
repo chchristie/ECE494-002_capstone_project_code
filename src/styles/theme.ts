@@ -205,10 +205,6 @@ export type ThemeSpacing = typeof theme.spacing;
 export type ThemeTypography = typeof theme.typography;
 
 // Helper functions for theme usage
-export const getColor = (colorKey: keyof ThemeColors): string => {
-  return theme.colors[colorKey];
-};
-
 export const getSpacing = (spacingKey: keyof ThemeSpacing): number => {
   return theme.spacing[spacingKey];
 };

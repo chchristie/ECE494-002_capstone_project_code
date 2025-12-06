@@ -4,8 +4,8 @@
 /**
  * Enhanced sensor reading interface matching DataManager's CSV export format
  * Format from DataManager.exportSessionCSV() and exportAllDataCSV():
- * - Session CSV (18 columns): Timestamp_Unix_ms, Timestamp_ISO, Time_Since_Start_Seconds, Time_Since_Start_Minutes, HR_BPM, HR_Contact_Detected, HR_Signal_Quality, HR_RR_Interval_ms, SpO2_Percent, SpO2_Pulse_Rate_BPM, SpO2_Signal_Quality, Battery_Percent, Accel_X_g, Accel_Y_g, Accel_Z_g, Accel_Magnitude_g, Device_ID
- * - All Data CSV (18 columns): Session_End, Session_Duration_Minutes, Timestamp_Unix_ms, Timestamp_ISO, Time_Since_Session_Start_Seconds, HR_BPM, HR_Contact_Detected, HR_Signal_Quality, HR_RR_Interval_ms, SpO2_Percent, SpO2_Pulse_Rate_BPM, SpO2_Signal_Quality, Battery_Percent, Accel_X_g, Accel_Y_g, Accel_Z_g, Accel_Magnitude_g, Device_ID
+ * - Session CSV (17 columns): Timestamp_Unix_ms, Timestamp_ISO, Time_Since_Start_Seconds, Time_Since_Start_Minutes, HR_BPM, HR_Contact_Detected, HR_Signal_Quality, SpO2_Percent, SpO2_Pulse_Rate_BPM, SpO2_Signal_Quality, Battery_Percent, Accel_X_g, Accel_Y_g, Accel_Z_g, Accel_Magnitude_g, Device_ID
+ * - All Data CSV (17 columns): Session_End, Session_Duration_Minutes, Timestamp_Unix_ms, Timestamp_ISO, Time_Since_Session_Start_Seconds, HR_BPM, HR_Contact_Detected, HR_Signal_Quality, SpO2_Percent, SpO2_Pulse_Rate_BPM, SpO2_Signal_Quality, Battery_Percent, Accel_X_g, Accel_Y_g, Accel_Z_g, Accel_Magnitude_g, Device_ID
  */
 
 export interface ParsedSensorReading {
@@ -25,7 +25,6 @@ export interface ParsedSensorReading {
     bpm: number;
     contactDetected: boolean;
     signalQuality: number;
-    rrInterval?: number;
   };
 
   // SpO2 data
@@ -158,7 +157,7 @@ function detectCSVFormat(header: string): 'session' | 'allData' | 'unknown' {
 
 /**
  * Parse a single Session CSV row
- * Format: Timestamp_Unix_ms,Timestamp_ISO,Time_Since_Start_Seconds,Time_Since_Start_Minutes,HR_BPM,HR_Contact_Detected,HR_Signal_Quality,HR_RR_Interval_ms,SpO2_Percent,SpO2_Pulse_Rate_BPM,SpO2_Signal_Quality,Battery_Percent,Accel_X_g,Accel_Y_g,Accel_Z_g,Accel_Magnitude_g,Device_ID
+ * Format: Timestamp_Unix_ms,Timestamp_ISO,Time_Since_Start_Seconds,Time_Since_Start_Minutes,HR_BPM,HR_Contact_Detected,HR_Signal_Quality,SpO2_Percent,SpO2_Pulse_Rate_BPM,SpO2_Signal_Quality,Battery_Percent,Accel_X_g,Accel_Y_g,Accel_Z_g,Accel_Magnitude_g,Device_ID
  */
 function parseSessionCSVRow(values: string[]): ParsedSensorReading | null {
   try {
@@ -170,7 +169,6 @@ function parseSessionCSVRow(values: string[]): ParsedSensorReading | null {
     const hrBpm = parseNumber(values[4]);
     const hrContactDetected = parseBoolean(values[5]);
     const hrSignalQuality = parseNumber(values[6]);
-    const hrRRInterval = parseNumber(values[7]);
 
     const spO2Percent = parseNumber(values[8]);
     const spO2PulseRate = parseNumber(values[9]);
@@ -195,7 +193,6 @@ function parseSessionCSVRow(values: string[]): ParsedSensorReading | null {
         bpm: hrBpm,
         contactDetected: hrContactDetected ?? false,
         signalQuality: hrSignalQuality ?? 0,
-        rrInterval: hrRRInterval,
       } : undefined,
       spO2: spO2Percent !== undefined ? {
         percent: spO2Percent,
@@ -221,7 +218,7 @@ function parseSessionCSVRow(values: string[]): ParsedSensorReading | null {
 
 /**
  * Parse a single All Data CSV row
- * Format: Session_End,Session_Duration_Minutes,Timestamp_Unix_ms,Timestamp_ISO,Time_Since_Session_Start_Seconds,HR_BPM,HR_Contact_Detected,HR_Signal_Quality,HR_RR_Interval_ms,SpO2_Percent,SpO2_Pulse_Rate_BPM,SpO2_Signal_Quality,Battery_Percent,Accel_X_g,Accel_Y_g,Accel_Z_g,Accel_Magnitude_g,Device_ID
+ * Format: Session_End,Session_Duration_Minutes,Timestamp_Unix_ms,Timestamp_ISO,Time_Since_Session_Start_Seconds,HR_BPM,HR_Contact_Detected,HR_Signal_Quality,SpO2_Percent,SpO2_Pulse_Rate_BPM,SpO2_Signal_Quality,Battery_Percent,Accel_X_g,Accel_Y_g,Accel_Z_g,Accel_Magnitude_g,Device_ID
  */
 function parseAllDataCSVRow(values: string[]): ParsedSensorReading | null {
   try {
@@ -235,7 +232,6 @@ function parseAllDataCSVRow(values: string[]): ParsedSensorReading | null {
     const hrBpm = parseNumber(values[5]);
     const hrContactDetected = parseBoolean(values[6]);
     const hrSignalQuality = parseNumber(values[7]);
-    const hrRRInterval = parseNumber(values[8]);
 
     const spO2Percent = parseNumber(values[9]);
     const spO2PulseRate = parseNumber(values[10]);
@@ -261,7 +257,6 @@ function parseAllDataCSVRow(values: string[]): ParsedSensorReading | null {
         bpm: hrBpm,
         contactDetected: hrContactDetected ?? false,
         signalQuality: hrSignalQuality ?? 0,
-        rrInterval: hrRRInterval,
       } : undefined,
       spO2: spO2Percent !== undefined ? {
         percent: spO2Percent,

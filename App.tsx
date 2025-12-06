@@ -16,7 +16,6 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import HeartRateScreen from './src/screens/HeartRateScreen';
 import AccelerometerScreen from './src/screens/AccelerometerScreen';
 import TrendsScreen from './src/screens/TrendsScreen';
-import BluetoothScreen from './src/screens/BluetoothScreen';
 import DataManagementScreen from './src/screens/DataManagementScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
 
@@ -43,7 +42,7 @@ interface TabConfig {
   name: TabName;
   label: string;
   icon: string;
-  component: React.ComponentType<SimpleNavigationProps>;
+  component: React.ComponentType<any>;
 }
 
 // Tab configuration - Max 4 tabs for optimal UX (industry best practice)
@@ -112,7 +111,7 @@ const TabButton: React.FC<{
 
 // Component wrapper to safely pass props
 const ScreenWrapper: React.FC<{
-  Component: React.ComponentType<SimpleNavigationProps>;
+  Component: React.ComponentType<any>;
   navigation: SimpleNavigationProps['navigation'];
   route: SimpleNavigationProps['route'];
 }> = ({ Component, navigation, route }) => {
