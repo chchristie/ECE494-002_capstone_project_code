@@ -26,24 +26,23 @@
 
 ## Project Overview
 
-This is a **research-grade React Native mobile application** for continuous monitoring of:
+This is a **React Native mobile application** for continuous monitoring of:
 - Heart Rate (BPM)
 - SpO2 (blood oxygen saturation %)
 - Accelerometer data (3-axis motion tracking)
 - Battery level
 
 **Hardware:**
-- Nordic nRF52840 (Adafruit Feather or SeedStudio XIAO)
+- XIAO Seeed nRF52840
 - SparkFun MAX30101 biosensor (Heart Rate + SpO2)
 - LSM6DS3 IMU (Accelerometer)
-- RTC for timestamp synchronization
+- RTC for timestamps
 
 **Key Features:**
 - Real-time BLE data streaming (10 Hz)
 - 24/7 background monitoring (Android Foreground Service)
 - SQLite database with session management
 - CSV export for research data analysis
-- Timestamp synchronization between phone and Arduino
 
 ---
 
@@ -61,14 +60,13 @@ This is a **research-grade React Native mobile application** for continuous moni
 ┌─────────────────────────────────────────────────────────────────┐
 │                       BUSINESS LOGIC LAYER                      │
 │  BluetoothContext (useReducer state management)                 │
-│  DataManager (SQLite/AsyncStorage abstraction)                  │
+│  DataManager (SQLite database)                                  │
 │  NordicDataParser (BLE packet parsing)                          │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                         DATA LAYER                              │
-│  SQLite Database (sensor_readings, monitoring_sessions)        │
-│  AsyncStorage (fallback for older devices)                     │
+│  SQLite Database (sensor_readings, monitoring_sessions, accelerometer_readings) │
 │  Android Foreground Service (background wake locks)            │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
@@ -86,7 +84,7 @@ This is a **research-grade React Native mobile application** for continuous moni
 ### **Core Application**
 
 #### `App.tsx`
-**Location:** `C:\Users\julia\Documents\HeartRateMonitorClean\App.tsx`
+**Location:** `App.tsx`
 
 **Purpose:** Main entry point, custom tab navigation, database initialization
 
@@ -120,7 +118,7 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
 ### **Context & State Management**
 
 #### `src/context/BluetoothContext.tsx`
-**Location:** `C:\Users\julia\Documents\HeartRateMonitorClean\src\context\BluetoothContext.tsx`
+**Location:** `src/context/BluetoothContext.tsx`
 
 **Purpose:** Global Bluetooth state management, BLE event handling, data buffering
 
@@ -145,8 +143,8 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
 - Line 934-971: `subscribeToBattery()` - Subscribe to battery notifications (UUID 2A19)
 - Line 973-1011: `subscribeToAccelerometer()` - Subscribe to accel notifications (UUID 2A5C)
 
-**Time Sync:**
-- Line 784-821: `syncTimeWithArduino()` - Write Unix timestamp to Arduino via BLE (characteristic 6E400010)
+**Device Control:**
+- `writeControlCharacteristic()` - Write reset commands to Arduino control characteristic
 
 **Data Flow:**
 - Line 360-584: `handleCharacteristicValueUpdate()` - Main BLE event handler
@@ -162,10 +160,8 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
 - `dbWriteBufferRef` - Buffer for batching database writes
 
 **Device Detection:**
-- Line 229-269: `isNordicDevice()` - Broad Nordic/SeedStudio device detection
-  - Name patterns: nordic, nrf52, seedstudio, grove, heartrate, hr, spo2, etc.
-  - Service UUIDs: 180D (HR), 180F (Battery), Nordic UART
-  - Manufacturer ID: 0x0059 (Nordic Semiconductor)
+- Filters devices by advertising HRM (0x180D) or SpO2 (0x1822) service
+- Generic filtering - no device name or manufacturer restrictions
 
 **Background Monitoring:**
 - Line 747-756: Starts Android Foreground Service on connection
@@ -176,9 +172,9 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
 ### **Services**
 
 #### `src/services/DataManager.ts`
-**Location:** `C:\Users\julia\Documents\HeartRateMonitorClean\src\services\DataManager.ts`
+**Location:** `src/services/DataManager.ts`
 
-**Purpose:** Database abstraction layer, supports SQLite + AsyncStorage fallback
+**Purpose:** SQLite database management and data export
 
 **Key Exports:**
 - `DataManager` class (default export)
@@ -193,11 +189,8 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
 **Core Functions:**
 
 **Initialization:**
-- Line 95-134: `initialize()` - Opens SQLite database or falls back to AsyncStorage
-- Line 140-200: `createTables()` - Creates sensor_readings and monitoring_sessions tables
-- Line 203-249: `runMigrations()` - Version-based database migrations
-- Line 252-279: `migrateToV2()` - Adds accelerometer columns (v2 migration)
-- Line 282-318: `migrateToV3()` - Adds raw accelerometer columns (v3 migration)
+- `initialize()` - Opens SQLite database
+- `createTables()` - Creates sensor_readings, monitoring_sessions, and accelerometer_readings tables
 
 **Session Management:**
 - Line 365-413: `createSession()` - Create new monitoring session
@@ -208,17 +201,9 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
 - Line 602-648: `getSessionReadings()` - Get all readings for a session
 
 **Data Storage:**
-- Line 651-744: `saveNordicReading()` - Save heart rate, SpO2, battery, and accelerometer data
-  - **CRITICAL:** Line 672-702: Arduino timestamp prioritization logic
-    - Priority: accelerometer.timestamp > heartRate.timestamp > spO2.timestamp > phone time
-    - Validates Arduino timestamp is between 2020-2030 (prevents Unix epoch = 0 errors)
-  - Creates EnhancedSensorReading object
-  - Calls `saveEnhancedReadings()`
-
-- Line 746-818: `saveEnhancedReadings()` - SQLite INSERT with all sensor types
-  - **Line 784:** Debug log showing INSERT parameters
-  - **Line 793:** Error logging with JSON.stringify for debugging
-  - Uses `??` operator to preserve 0 values (Line 774-780)
+- `saveNordicReading()` - Save heart rate, SpO2, battery, and accelerometer data
+- `saveEnhancedReadings()` - SQLite INSERT for sensor readings
+- `saveAccelerometerReadings()` - SQLite INSERT for accelerometer data with timestamps
 
 **Data Retrieval:**
 - Line 906-955: `getRecentReadings()` - Get readings from last N hours
@@ -276,9 +261,8 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
   - ACCELEROMETER: '2A5C'
 
 **SeedStudio Custom:**
-- `SEEDSTUDIO_SERVICES` (Line 41-54)
-- `SEEDSTUDIO_CHARACTERISTICS` (Line 56-79)
-  - TIME_SYNC: '6E400010' (phone writes timestamp to Arduino)
+- `SEEDSTUDIO_SERVICES` - Accelerometer service
+- `SEEDSTUDIO_CHARACTERISTICS` - Accelerometer data, misc data, control
 
 **Data Interfaces:**
 - Line 105-113: `HeartRateData`
@@ -288,7 +272,7 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
   - `raw_x`, `raw_y`, `raw_z` - Int16 values from Arduino
   - `x`, `y`, `z` - Calculated g units
   - `magnitude` - Vector magnitude
-  - `timestamp` - Arduino's RTC time (synced with phone)
+  - `timestamp` - Timestamp in milliseconds
 
 **Parsing Class:**
 `NordicDataParser` (Line 214-540):
@@ -422,48 +406,18 @@ Custom tab bar with 4 main tabs (no React Navigation dependency):
 - Database statistics (total readings, sessions, storage size)
 - Clear all data button
 - Export all data (JSON/CSV)
+- Sensor settings (accelerometer enable/disable)
+- Device control (biosensor reset, system reset)
 - App version info
 
 ---
 
 ### **Utilities**
 
-#### `src/utils/FileExporter.ts`
-**Purpose:** Export data to device storage (RNFS wrapper)
-
-**Key Functions:**
-- Export CSV to Downloads folder
-- Share via native share sheet
-
----
-
 #### `src/utils/csvParser.ts`
-**Purpose:** Parse CSV files (for import functionality)
+**Purpose:** Parse CSV files for data import/export
 
 ---
-
-#### `src/utils/dateTime.ts`
-**Purpose:** Date/time formatting utilities
-
----
-
-#### `src/utils/heartRateZones.ts`
-**Purpose:** Calculate HR zones (resting, fat burn, cardio, peak)
-
----
-
-#### `src/utils/hrvCalculations.ts`
-**Purpose:** Heart rate variability calculations from RR intervals
-
----
-
-#### `src/utils/permissions.ts`
-**Purpose:** Android permission request helpers
-
----
-
-#### `src/utils/validation.ts`
-**Purpose:** Input validation utilities
 
 ---
 
@@ -626,11 +580,11 @@ Two wake locks ensure uninterrupted monitoring:
 - Scale: ±2g range (divide by 16384 to get g units)
 - Transmission: 10 Hz
 
-**5. Time Sync Characteristic** - Line 79
-- UUID: 6E400010-B5A3-F393-E0A9-E50E24DCCA9E
-- Purpose: Phone writes Unix timestamp to Arduino
-- Format: 8 bytes (64-bit little-endian, milliseconds)
-- Writeable by phone
+**5. Control Characteristic**
+- UUID: 6E400005-B5A3-F393-E0A9-E50E24DCCA9E
+- Purpose: Device control (sensor reset, system reset)
+- Format: 2 bytes (byte 0 = sensor reset flag, byte 1 = device reset flag)
+- Writeable by phone, read by Arduino every 10 seconds
 
 **Main Loop Timing System:**
 
@@ -673,18 +627,10 @@ case 20: Reset counter to 0
     - Bytes 8-13: Accel data (X, Y, Z as int16, LSB first)
   - Calls `accelChar.notify(accelData, 14)`
 
-**Timestamp Management:**
-
-- Line 82-83: `baseTimestampMs`, `baseMillis` - Track phone time sync
-- `getCurrentTimestamp()` - Returns synced Unix time in milliseconds
-  - Uses `millis() - baseMillis + baseTimestampMs`
-  - Returns 0 if not synced yet
-
-- Line 239-244: `timesync_callback()` - Phone writes timestamp
-  - Receives 8 bytes from phone
-  - Extracts 64-bit timestamp (little-endian)
-  - Updates `baseTimestampMs` and `baseMillis`
-  - Prints confirmation to serial
+**Device Control:**
+- Control characteristic read in case 20 (when `secondCounter % 10 == 0`)
+- Byte 0 = 1: Calls `initBiosensor()` to reset sensor
+- Byte 1 = 1: Calls `NVIC_SystemReset()` to restart device
 
 **I2C Communication:**
 
@@ -695,9 +641,9 @@ MAX30101 biosensor read sequence:
 4. Read data via I2C (Line 331)
 
 **Accelerometer Read:**
-- Line 300-302: Direct IMU read every 100ms
-  - `myIMU.readRawAccelX()` - Returns int16 raw value
-  - Stored in circular buffer
+- Direct IMU read every 100ms
+  - Raw int16 values stored in circular buffer
+  - Timestamp included in BLE packet
 
 **Advertising:**
 - Line 247-262: BLE advertising setup
@@ -798,17 +744,6 @@ CREATE TABLE IF NOT EXISTS monitoring_sessions (
 
 ---
 
-### **AsyncStorage Fallback**
-
-**Used when SQLite unavailable (older devices or initialization failure)**
-
-**Storage Keys:**
-- `HeartRateReadings` - Legacy format (backward compatibility)
-- `MonitoringSessions` - JSON array of session objects
-- `EnhancedSensorReadings` - JSON array of reading objects
-
-**Data Format:** JSON arrays with ISO timestamp strings
-
 ---
 
 ## BLE Service UUIDs
@@ -842,7 +777,7 @@ All UUIDs can be used in 16-bit or 128-bit format. Standard base:
 
 | Name                  | UUID                                   | Purpose                         | Arduino Line | App Line |
 |-----------------------|----------------------------------------|---------------------------------|--------------|----------|
-| Time Sync (Writable)  | 6E400010-B5A3-F393-E0A9-E50E24DCCA9E | Phone writes timestamp to Arduino | Line 79 | nordic-ble-services.ts Line 65 |
+| Control (Writable)    | 6E400005-B5A3-F393-E0A9-E50E24DCCA9E | Device control commands | Line 94 | nordic-ble-services.ts |
 
 ---
 
@@ -1088,36 +1023,6 @@ BluetoothContext.disconnectDevice() - Line 823-852
 
 ---
 
-### **Time Synchronization Flow**
-
-```
-Phone connects to Arduino (BluetoothContext.connectToDevice)
-   ↓
-Line 759-764: syncTimeWithArduino(deviceId)
-   ├─ Get current phone time: Date.now() → Unix milliseconds
-   ├─ Convert to 8-byte little-endian array
-   │   for (let i = 0; i < 8; i++) {
-   │     timestampBytes[i] = (timestampMs >> (i * 8)) & 0xFF;
-   │   }
-   └─ BleManager.write(deviceId, service, timeSyncChar, timestampBytes)
-
-   ↓ BLE Write to UUID 6E400010
-   │
-Arduino receives timestamp (timesync_callback) - Line 239-244
-   ├─ Extract 64-bit value (little-endian)
-   │   for (int i = 0; i < 8; i++) {
-   │     baseTimestampMs |= ((uint64_t)data[i] << (i * 8));
-   │   }
-   ├─ Store: baseTimestampMs, baseMillis = millis()
-   └─ Print: "Time synced: YYYY-MM-DD HH:MM:SS"
-
-   ↓
-Arduino uses synced time for all subsequent accelerometer packets
-   getCurrentTimestamp() = (millis() - baseMillis) + baseTimestampMs
-```
-
----
-
 ## Development Workflow
 
 ### **1. Initial Setup**
@@ -1245,7 +1150,6 @@ Heart Rate CCCD updated: Notifications enabled
 SpO2 CCCD updated: Notifications enabled
 Battery CCCD updated: Notifications enabled
 Accelerometer CCCD updated: Notifications enabled
-Time synced: 2025-11-09 14:23:45
 ```
 
 ---
@@ -1267,7 +1171,6 @@ adb logcat | grep -i "bluetooth\|ble\|datamanager"
 ```
 ✅ Created session: session_1699545825123_abc123
 ✅ Foreground service started - JavaScript thread will stay active in background
-✅ Time synced with Arduino: 2025-11-09T14:23:45.123Z
 ✅ Subscribed to Heart Rate
 ✅ Subscribed to SpO2
 ✅ Subscribed to Battery
@@ -1369,7 +1272,6 @@ LIMIT 10;
 - **Symptom:** Motion tab shows data, but CSV export is empty
 - **Cause:** NULL constraint error (session_id, device_id, or timestamp is NULL)
 - **Debug:** Check logs for "💾 Attempting SQLite INSERT" and error details
-- **Solution:** Verify time sync succeeded, check Arduino RTC is valid
 
 **Issue:** Arduino crashes, heart rate sensor stops working
 - **Symptom:** Accelerometer works, but HR/SpO2 stop updating
@@ -1414,26 +1316,13 @@ LIMIT 10;
 
 ## Version History
 
-**v1.0.0 (Current)**
+**Current Version**
 - SQLite database with session management
 - Android Foreground Service (24/7 monitoring)
-- Arduino timestamp synchronization
-- Raw accelerometer values (int16)
-- Research-grade CSV export
-- Database migrations (v1 → v2 → v3)
-
-**Known Issues:**
-- Accelerometer data NOT being saved to database (active investigation)
-  - Data displays correctly in Motion tab
-  - SQLite INSERT fails with "NOT NULL constraint"
-  - Possible cause: NULL session_id or invalid timestamp
-
-**Future Enhancements:**
-- iOS Foreground Service support
-- Real-time HRV calculations
-- Cloud sync (Firebase/AWS)
-- Push notifications for abnormal readings
-- Configurable data collection rates
+- Accelerometer data with timestamps
+- CSV/JSON export functionality
+- Device control via BLE (biosensor reset, system reset)
+- Generic device filtering (HRM or SpO2 service)
 
 ---
 

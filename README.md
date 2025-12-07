@@ -16,7 +16,7 @@ A React Native application for real-time monitoring of heart rate, SpO2, and acc
 - **React Native**: 0.73.2
 - **TypeScript**: Type-safe development
 - **BLE**: react-native-ble-manager for Bluetooth connectivity
-- **Storage**: SQLite (primary) with AsyncStorage fallback
+- **Storage**: SQLite database
 - **UI**: Custom tab-based navigation
 
 ## Hardware Requirements
@@ -43,40 +43,38 @@ A React Native application for real-time monitoring of heart rate, SpO2, and acc
 # 1. Install dependencies
 npm install
 
-# 2. For Android, ensure Android SDK is configured
-# Set ANDROID_HOME environment variable
-
-# 3. Build and run
+# 2. Build and run (requires connected device)
 npm run android
 ```
 
 ### Building APK
 
+**Debug build:**
 ```bash
-# Method 1: Using npm script
-npm run build:android
-
-# Method 2: Manual build
-cd android
-.\gradlew.bat assembleDebug  # Windows
-./gradlew assembleDebug      # macOS/Linux
-
-# APK location: android/app/build/outputs/apk/debug/app-debug.apk
+cd android && ./gradlew assembleDebug
 ```
+
+**Standalone build (no Metro server):**
+```bash
+npm run android:assemble
+```
+
+See [BUILD.md](BUILD.md) for detailed build instructions.
 
 ## Arduino Firmware
 
 Upload the firmware to your Nordic nRF52840:
 
-**Location**: `arduino/Arduino_Code_FIXED_MINIMAL.ino`
+**Location**: `arduino/arduino.ino`
 
 **BLE Services**:
-- Heart Rate Service (0x180D) - Standard
-- Pulse Oximeter (0x1822) - Standard
-- Battery Service (0x180F) - Standard
-- Motion Service (0x1819) - Standard accelerometer
+- Heart Rate Service (0x180D)
+- Pulse Oximeter (0x1822)
+- Battery Service (0x180F)
+- Custom Accelerometer Service (6E400001-B5A3-F393-E0A9-E50E24DCCA9E)
 
-**Transmission Rate**: 1 Hz (once per second) for all sensors
+**Device Control**:
+- Control characteristic (6E400005-B5A3-F393-E0A9-E50E24DCCA9E) for biosensor reset and system reset
 
 See Arduino file header for detailed hardware setup and timing information.
 
@@ -110,8 +108,7 @@ HeartRateMonitor_Shareable/
 ### DataManager (`src/services/DataManager.ts`)
 - SQLite database management
 - Session-based data recording
-- CSV export functionality
-- Automatic migration from AsyncStorage
+- CSV/JSON export functionality
 
 ### Foreground Service (`android/.../BleMonitoringForegroundService.kt`)
 - Enables unlimited background monitoring
@@ -122,9 +119,9 @@ HeartRateMonitor_Shareable/
 
 ### Connecting to Device
 
-1. Open the app and navigate to the Bluetooth tab
+1. Open the app and navigate to the Data Management tab
 2. Tap "Scan for Devices"
-3. Select your Nordic device from the list
+3. Select your device (must advertise HRM or SpO2 service)
 4. Connection establishes automatically
 5. Foreground service starts for background monitoring
 
@@ -133,13 +130,19 @@ HeartRateMonitor_Shareable/
 - **Heart Rate Tab**: Real-time heart rate and contact detection
 - **Motion Tab**: Live 3-axis accelerometer readings
 - **Trends Tab**: Historical data charts
-- **Bluetooth Tab**: Session management and CSV export
+- **Data Management Tab**: Session management, CSV/JSON export, device control
+
+### Device Control
+
+In Data Management → Sensor Settings:
+- **Reset Biosensor**: Reinitializes the biosensor on the Arduino
+- **Reset Device**: Restarts the Arduino device
 
 ### Exporting Data
 
-1. Go to Bluetooth tab
+1. Go to Data Management tab
 2. Tap on a session to view details
-3. Tap "Export to CSV"
+3. Tap "Export to CSV" or "Export to JSON"
 4. File saves to Downloads folder with timestamp
 
 ## Database Schema
@@ -187,9 +190,9 @@ Permissions are requested dynamically on app startup.
 - Check device is advertising BLE services
 - Enable location permissions (required for BLE scanning)
 
-**Shows simulated data**:
-- Verify BLE notifications are subscribed after connection
-- Check Arduino is sending data (case 10 in timing loop)
+**Connection issues**:
+- Verify device is advertising HRM (0x180D) or SpO2 (0x1822) service
+- Check BLE notifications are subscribed after connection
 - Review console logs for parsing errors
 
 ### Background Monitoring
@@ -217,7 +220,7 @@ Permissions are requested dynamically on app startup.
 ## Further Documentation
 
 - **CODE_MAP.md**: Detailed file-by-file documentation
-- **BUILD_INSTRUCTIONS.md**: Complete build process guide
+- **BUILD.md**: Build instructions (debug and standalone)
 - **Arduino code header**: Hardware setup and timing details
 
 ## License
