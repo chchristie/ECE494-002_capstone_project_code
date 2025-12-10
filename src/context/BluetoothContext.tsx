@@ -258,10 +258,6 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
   const scanTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastValidHeartRateRef = useRef<number>(Date.now()); // Track last valid (>30) heart rate timestamp
 
-  // Throttle UI updates to 2 times per second (500ms) to prevent UI freezing
-  const lastUiUpdateRef = useRef<number>(0);
-  const UI_UPDATE_THROTTLE = 500; // milliseconds (2 Hz)
-
   // Buffer for batching database writes - ACCUMULATE all sensor types into ONE object
   const dbWriteBufferRef = useRef<{
     hr?: HeartRateData;

@@ -19,15 +19,6 @@ A React Native application for real-time monitoring of heart rate, SpO2, and acc
 - **Storage**: SQLite database
 - **UI**: Custom tab-based navigation
 
-## Hardware Requirements
-
-- **Arduino**: Nordic nRF52840 microcontroller
-- **Sensors**:
-  - MAX30101 Biosensor (Heart Rate + SpO2) - I2C 0x57
-  - LIS3DH Accelerometer - I2C
-  - DS3231 RTC for timestamps
-  - Battery monitor
-
 ## Quick Start
 
 ### Prerequisites
@@ -60,43 +51,6 @@ npm run android:assemble
 ```
 
 See [BUILD.md](BUILD.md) for detailed build instructions.
-
-## Arduino Firmware
-
-Upload the firmware to your Nordic nRF52840:
-
-**Location**: `arduino/arduino.ino`
-
-**BLE Services**:
-- Heart Rate Service (0x180D)
-- Pulse Oximeter (0x1822)
-- Battery Service (0x180F)
-- Custom Accelerometer Service (6E400001-B5A3-F393-E0A9-E50E24DCCA9E)
-
-**Device Control**:
-- Control characteristic (6E400005-B5A3-F393-E0A9-E50E24DCCA9E) for biosensor reset and system reset
-
-See Arduino file header for detailed hardware setup and timing information.
-
-## Project Structure
-
-```
-HeartRateMonitor_Shareable/
-├── src/
-│   ├── context/          # BluetoothContext - global BLE state
-│   ├── screens/          # Main app screens (HeartRate, Accelerometer, Trends, Bluetooth)
-│   ├── services/         # DataManager, BLE services, background monitoring
-│   ├── components/       # Reusable UI components
-│   └── utils/            # Utilities (file export, permissions, etc.)
-├── android/
-│   └── app/src/main/java/com/heartratemonitorclean/
-│       ├── BleMonitoringForegroundService.kt
-│       ├── ForegroundServiceModule.kt
-│       └── FileExportModule.java
-├── arduino/              # Arduino firmware
-├── builds/               # Pre-built APK files
-└── docs/                 # Additional documentation
-```
 
 ## Key Components
 
@@ -144,20 +98,6 @@ In Data Management → Sensor Settings:
 2. Tap on a session to view details
 3. Tap "Export to CSV" or "Export to JSON"
 4. File saves to Downloads folder with timestamp
-
-## Database Schema
-
-### Sessions Table
-- `id`, `device_name`, `device_id`
-- `start_time`, `end_time`
-- `data_count`, `notes`
-
-### Sensor Readings Table
-- `id`, `session_id`, `device_id`, `timestamp`
-- `heart_rate`, `hr_contact_detected`, `hr_signal_quality`
-- `spo2_value`, `spo2_pulse_rate`, `spo2_signal_quality`
-- `battery_level`
-- `accel_x`, `accel_y`, `accel_z`, `accel_magnitude`
 
 ## Permissions (Android)
 

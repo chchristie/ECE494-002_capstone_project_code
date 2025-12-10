@@ -67,7 +67,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
       if (allSessions.length > 0) {
         // Only set if not already set or if current selection is not in the list
         if (!selectedSessionId || !allSessions.find(s => s.id === selectedSessionId)) {
-          setSelectedSessionId(allSessions[0].id);
+        setSelectedSessionId(allSessions[0].id);
         }
       }
     } catch (err) {

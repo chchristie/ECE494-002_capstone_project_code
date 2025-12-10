@@ -19,19 +19,12 @@ uint32_t secondCounter = 0;
 // IMU
 #define IMU_ADDRESS 0x6A
 LSM6DS3 myIMU(I2C_MODE, IMU_ADDRESS);
-#define IMU_BUFFER_SIZE 20
-#define IMU_SAMPLING_RATE 100
 
 int16_t accelBuffX[20];
 int16_t accelBuffY[20];
 int16_t accelBuffZ[20];
 
-// Stored buffers - updated only when intCounter resets (every 200ms)
-int16_t accelStoredBuffX[20];
-int16_t accelStoredBuffY[20];
-int16_t accelStoredBuffZ[20];
-
-// BLE transmission buffer (prepared on interrupt 13, sent on interrupt 14)
+// BLE transmission buffer (prepared on interrupt 20, sent on interrupt 15)
 uint8_t accelBLEBuffer[124];
 
 //*******************************************************************************************************************
@@ -202,15 +195,12 @@ void initBluetooth() {
   Bluefruit.setName("XIAO Health Monitor");
   Bluefruit.autoConnLed(false); // Disable blinking blue LED when waiting for connection
 
-  // Set low power mode to prevent deep sleep that kills BLE connection
-  sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
-
   Bluefruit.Periph.setConnectCallback(connect_callback);
   Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
 
   // Device Information Service
-  bledis.setManufacturer("SeedStudio");
-  bledis.setModel("XIAO_nRF52840");
+  bledis.setManufacturer("Seeed Studio");
+  bledis.setModel("XIAO Seeed nRF52840 Sense");
   bledis.begin();
 
   Serial.println("Device Information Service started");
@@ -305,8 +295,10 @@ void setup() {
   // Serial port initialization
   Serial.begin(115200);
   while (!Serial && millis() < 5000); // Wait max 5 seconds for serial
-
   Serial.println("Serial initialized");
+
+  // Set low power mode to prevent deep sleep that kills BLE connection
+  sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
 
   // Initialize Watchdog Timer for stability
   initWatchdog();
@@ -412,47 +404,21 @@ void loop() {
         }
         break;
       case 14:
-        prepareAccelerometerBuffer();
         break;
       case 15:
         sendAccelerometerBLE();
-        break;                
-      case 20:
-        intCounter = 0;
-        secondCounter++;
-        
-        // Copy raw buffer data to stored buffers
-        for (int i = 0; i < 20; i++) {
-          accelStoredBuffX[i] = accelBuffX[i];
-          accelStoredBuffY[i] = accelBuffY[i];
-          accelStoredBuffZ[i] = accelBuffZ[i];
-        }
-        sendAccelerometerDataToBiohub();
-        
+        break;
+      case 19:
         // Check control characteristic for commands (only every 10 seconds)
         if (secondCounter % 10 == 0 && Bluefruit.connected()) {
-          uint8_t controlData[2];
-          uint16_t len = controlChar.read(controlData, 2);
-          
-          if (len >= 2) {
-            // Check for sensor reset flag (byte 0)
-            if (controlData[0] == 1) {
-              Serial.println("Reset biosensor command received");
-              controlData[0] = 0;
-              controlChar.write(controlData, 2);
-              initBiosensor();
-            }
-            
-            // Check for device reset flag (byte 1)
-            if (controlData[1] == 1) {
-              Serial.println("System reset command received");
-              controlData[1] = 0;
-              controlChar.write(controlData, 2);
-              delay(100);  // Small delay to allow serial to flush
-              NVIC_SystemReset();
-            }
-          }
+          checkControlCharacteristic();
         }
+        break;
+      case 20:
+        prepareAccelerometerBuffer();
+        sendAccelerometerDataToBiohub();
+        intCounter = 0;
+        secondCounter++;
         break;
       }
 
@@ -519,6 +485,7 @@ void cccd_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint16_t cccd_valu
 //**************************************************************************************************************
 // RTC initialization
 void initRTC(unsigned long count30) {
+  // See "6.22 RTC - Real-time counter 6.22.10 Registers"
   NRF_CLOCK->TASKS_LFCLKSTOP = 1;
   NRF_CLOCK->LFCLKSRC = 1;
   NRF_CLOCK->TASKS_LFCLKSTART = 1;
@@ -937,15 +904,38 @@ void sendBatteryBLE() {
   Serial.println("V)");
 }
 
-// FIXED: Completely rewritten to match app's 14-byte format expectation
-// Prepare accelerometer data buffer (called on interrupt 13)
+// Check control characteristic for device commands (called on interrupt 19)
+void checkControlCharacteristic() {
+  uint8_t controlData[2];
+  uint16_t len = controlChar.read(controlData, 2);
+  
+  if (len >= 2) {
+    // Check for sensor reset flag (byte 0)
+    if (controlData[0] == 1) {
+      Serial.println("Reset biosensor command received");
+      controlData[0] = 0;
+      controlChar.write(controlData, 2);
+      initBiosensor();
+    }
+    
+    // Check for device reset flag (byte 1)
+    if (controlData[1] == 1) {
+      Serial.println("System reset command received");
+      controlData[1] = 0;
+      controlChar.write(controlData, 2);
+      delay(100);  // Small delay to allow serial to flush
+      NVIC_SystemReset();
+    }
+  }
+}
+
 // Packs 124 bytes: secondCounter + 20 samples × 3 axes into accelBLEBuffer
 void prepareAccelerometerBuffer() {
   // Pack into 124-byte array:
   // Bytes 0-3: secondCounter (uint32_t, little-endian)
-  // Bytes 4-43: accelStoredBuffX[20] (20 * int16_t = 40 bytes, little-endian)
-  // Bytes 44-83: accelStoredBuffY[20] (40 bytes, little-endian)
-  // Bytes 84-123: accelStoredBuffZ[20] (40 bytes, little-endian)
+  // Bytes 4-43: accelBuffX[20] (20 * int16_t = 40 bytes, little-endian)
+  // Bytes 44-83: accelBuffY[20] (40 bytes, little-endian)
+  // Bytes 84-123: accelBuffZ[20] (40 bytes, little-endian)
 
   // Pack secondCounter (4 bytes, little-endian)
   accelBLEBuffer[0] = secondCounter & 0xFF;
@@ -953,29 +943,29 @@ void prepareAccelerometerBuffer() {
   accelBLEBuffer[2] = (secondCounter >> 16) & 0xFF;
   accelBLEBuffer[3] = (secondCounter >> 24) & 0xFF;
 
-  // Pack accelStoredBuffX[20] (bytes 4-43)
+  // Pack accelBuffX[20] (bytes 4-43)
   for (int i = 0; i < 20; i++) {
-    int16_t val = accelStoredBuffX[i];
+    int16_t val = accelBuffX[i];
     accelBLEBuffer[4 + i * 2] = val & 0xFF;
     accelBLEBuffer[4 + i * 2 + 1] = (val >> 8) & 0xFF;
   }
 
-  // Pack accelStoredBuffY[20] (bytes 44-83)
+  // Pack accelBuffY[20] (bytes 44-83)
   for (int i = 0; i < 20; i++) {
-    int16_t val = accelStoredBuffY[i];
+    int16_t val = accelBuffY[i];
     accelBLEBuffer[44 + i * 2] = val & 0xFF;
     accelBLEBuffer[44 + i * 2 + 1] = (val >> 8) & 0xFF;
   }
 
-  // Pack accelStoredBuffZ[20] (bytes 84-123)
+  // Pack accelBuffZ[20] (bytes 84-123)
   for (int i = 0; i < 20; i++) {
-    int16_t val = accelStoredBuffZ[i];
+    int16_t val = accelBuffZ[i];
     accelBLEBuffer[84 + i * 2] = val & 0xFF;
     accelBLEBuffer[84 + i * 2 + 1] = (val >> 8) & 0xFF;
   }
 }
 
-// Send accelerometer data via BLE (called on interrupt 14)
+// Send accelerometer data via BLE (called on interrupt 15)
 // Transmits the prepared accelBLEBuffer via BLE notification
 void sendAccelerometerBLE() {
   // Send via custom characteristic
