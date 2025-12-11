@@ -1,4 +1,4 @@
-// src/components/NeumorphicCard.tsx - Neumorphic design card
+// src/components/NeumorphicCard.tsx - Neumorphic design card- may not be utilized currently made for earliy itterations to test out ui features
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { theme } from '../styles/theme';
