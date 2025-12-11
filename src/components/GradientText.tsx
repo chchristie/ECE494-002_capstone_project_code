@@ -1,4 +1,4 @@
-// src/components/GradientText.tsx - Text component with gradient color support
+// src/components/GradientText.tsx - Text component with gradient color support for better ui- may not be utilized currently
 import React from 'react';
 import { Text, StyleSheet, TextStyle, View } from 'react-native';
 import { theme } from '../styles/theme';
@@ -17,7 +17,7 @@ export const GradientText: React.FC<GradientTextProps> = ({
   angle = 90,
 }) => {
   // Since React Native doesn't support text gradients natively,
-  // we'll simulate it by layering multiple text elements with different colors
+  // it is done by layering multiple text elements with different colors
   // This creates a pseudo-gradient effect
 
   const renderGradientLayers = () => {
@@ -60,7 +60,7 @@ export const SimpleGradientText: React.FC<GradientTextProps> = ({
   colors = theme.colors.primaryGradient,
   style,
 }) => {
-  // Use the first color as the base with a bright accent
+  // Uses the first color as the base with a bright accent for effect
   return (
     <Text
       style={[
@@ -85,7 +85,7 @@ export const AnimatedGradientText: React.FC<GradientTextProps> = ({
   colors = theme.colors.primaryGradient,
   style,
 }) => {
-  // For a more vibrant effect, we'll use the middle color with glow
+  // vibrant effect, 
   const primaryColor = colors[Math.floor(colors.length / 2)];
   const glowColor = colors[colors.length - 1];
 
