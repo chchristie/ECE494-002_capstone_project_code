@@ -1,4 +1,4 @@
-// src/components/GlassContainer.tsx - Glassmorphism effect container (no external deps)
+// src/components/GlassContainer.tsx - Glassmor effect container (no external deps) may no longer be used 
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { theme } from '../styles/theme';
@@ -32,7 +32,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.glassBorder,
     overflow: 'hidden',
     position: 'relative',
-    // Enhanced shadow for depth
+    // shadow for depth
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
