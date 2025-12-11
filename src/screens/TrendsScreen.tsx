@@ -19,7 +19,7 @@ import { theme } from '../styles/theme';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-// Helper: Downsample data for chart performance
+// Downsample data for chart performance
 function sampleData<T>(readings: T[], maxPoints: number = 500): T[] {
   if (readings.length <= maxPoints) {
     return readings;
@@ -57,13 +57,13 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
 
-  // Load all sessions
+  // Loads all sessions
   const loadSessions = useCallback(async () => {
     try {
       const allSessions = await DataManager.getAllSessions();
       setSessions(allSessions);
 
-      // Auto-select most recent session if none is selected
+      // Auto-selects the most recent session if none are selected
       if (allSessions.length > 0) {
         // Only set if not already set or if current selection is not in the list
         if (!selectedSessionId || !allSessions.find(s => s.id === selectedSessionId)) {
@@ -75,7 +75,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     }
   }, [selectedSessionId]);
 
-  // Load session data
+  // Loads session data
   const loadData = useCallback(async (sessionId?: string) => {
     try {
       setIsLoading(true);
@@ -84,7 +84,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
       const targetSessionId = sessionId || selectedSessionId;
 
       if (!targetSessionId) {
-        // No session selected - load all recent data
+        // No session selected - loads all recent data
         const recentReadings = await DataManager.getRecentReadings(168);
 
         if (!recentReadings || recentReadings.length === 0) {
@@ -95,10 +95,10 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
 
         setReadings(recentReadings);
         
-        // For "all sessions" mode, we don't load accelerometer data to keep it simple
+        // For "all sessions" mode, it does not load accelerometer data to keep the visual simple
         setAccelData([]);
       } else {
-        // Load specific session - get vitals and accelerometer data
+        // Loads specific session - get vitals and accelerometer data
         const sessionReadings = await DataManager.getSessionReadings(targetSessionId);
 
         if (!sessionReadings || sessionReadings.length === 0) {
@@ -109,7 +109,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
 
         setReadings(sessionReadings);
 
-        // Load downsampled accelerometer data (first sample from every 10th secondCounter = ~20 second intervals)
+        // Loads downsampled accelerometer data (first sample from every 10th secondCounter = ~20 second intervals) for ui updates
         const accelReadings = await DataManager.getAccelerometerReadingsDownsampled(targetSessionId, 10);
         setAccelData(accelReadings);
       }
@@ -129,10 +129,10 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load data when session changes or when sessions are loaded
+  // Loads data when session changes or when sessions are loaded
   useEffect(() => {
     if (sessions.length === 0) {
-      // Still loading sessions, don't load data yet
+      // Still loading sessions, don't load data yet to not overwhelm the app
       return;
     }
 
@@ -145,7 +145,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSessionId, sessions.length]);
 
-  // Handle refresh
+  // Handles the refresh
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     await loadSessions();
@@ -153,7 +153,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     setIsRefreshing(false);
   }, [loadData, loadSessions]);
 
-  // Filter data by time range
+  // Filters data by time range
   const filteredData = useMemo(() => {
     if (!readings || readings.length === 0) return null;
 
@@ -168,7 +168,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     return readings.filter(r => r.timestamp >= cutoffTime);
   }, [readings, selectedRange]);
 
-  // Filter accelerometer data by time range
+  // Filters accelerometer data by time range
   const filteredAccelData = useMemo(() => {
     if (!accelData || accelData.length === 0) return [];
 
@@ -185,7 +185,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     });
   }, [accelData, selectedRange]);
 
-  // Prepare chart data (sampled for performance)
+  // Prepares chart data
   const chartData = useMemo(() => {
     if (!filteredData || filteredData.length === 0) return null;
 
@@ -203,7 +203,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
       timestamp: r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp)
     }));
 
-    // Accelerometer magnitude data - from separate accelerometer table (already downsampled)
+    // Accelerometer magnitude data - from separate accelerometer table 
     const accelChartData = filteredAccelData.map(r => ({
       value: r.magnitude,
       timestamp: typeof r.timestamp === 'number' ? r.timestamp : r.timestamp.getTime()
@@ -212,15 +212,15 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     return { hrData, spO2Data, accelData: accelChartData };
   }, [filteredData, filteredAccelData]);
 
-  // Calculate statistics for filtered data
+  // Calculates statistics for filtered data
   const stats = useMemo(() => {
     if (!filteredData || filteredData.length === 0) return null;
 
-    // Filter out zero values for HR and SpO2 (0 is not a valid physiological reading)
+    // Filters out zero values for HR and SpO2 (0 is not a valid physiological reading)
     const hrValues = filteredData.filter(r => r.heartRate !== undefined && r.heartRate.value > 0).map(r => r.heartRate!.value);
     const spO2Values = filteredData.filter(r => r.spO2 !== undefined && r.spO2.value > 0).map(r => r.spO2!.value);
     
-    // Use accelerometer data from separate table
+    // Uses accelerometer data from separate table
     const accelValues = filteredAccelData.map(r => r.magnitude);
 
     const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
@@ -249,7 +249,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     };
   }, [filteredData, filteredAccelData]);
 
-  // Render session selector
+  // Renders session selector
   const renderSessionSelector = () => {
     if (sessions.length === 0) return null;
 
@@ -289,7 +289,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     );
   };
 
-  // Render time range selector
+  // Renders time range selector
   const renderTimeRangeSelector = () => (
     <View style={styles.timeRangeContainer}>
       {TIME_RANGES.map((range) => (
@@ -314,7 +314,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     </View>
   );
 
-  // Render stats overview
+  // Renders stats overview
   const renderStatsOverview = () => {
     if (!stats) return null;
 
@@ -347,7 +347,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     );
   };
 
-  // Render charts
+  // Renders charts
   const renderCharts = () => {
     if (!chartData) return null;
 
@@ -420,7 +420,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
     );
   };
 
-  // Render session info
+  // Renders session info
   const renderSessionInfo = () => {
     if (!selectedSessionId || readings.length === 0) return null;
 
@@ -511,6 +511,7 @@ const TrendsScreen: React.FC<TrendsScreenProps> = ({ navigation }) => {
   );
 };
 
+// Generic UI to match App
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -746,3 +747,4 @@ const styles = StyleSheet.create({
 });
 
 export default React.memo(TrendsScreen);
+
