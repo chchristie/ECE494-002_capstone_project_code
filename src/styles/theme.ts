@@ -1,11 +1,11 @@
-// Premium dark fitness app theme - Enhanced with glassmorphism and gradients
+// Themes to be used across all screen to allow for unifromity
 export const theme = {
   colors: {
-    // Core backgrounds - Deep blacks with subtle gradients (OLED-optimized)
+    // Core backgrounds 
     background: '#000000',           // Pure black
-    backgroundGradient: ['#0A0A0F', '#000000', '#0F0A0A'], // Subtle dark gradient
+    backgroundGradient: ['#0A0A0F', '#000000', '#0F0A0A'], // Dark gradient
     onBackground: '#FFFFFF',
-    surface: '#1C1C1E',             // Elevated surfaces (iOS dark)
+    surface: '#1C1C1E',             // Elevated surfaces (iOS dark) Attempt
     onSurface: '#FFFFFF',
     surfaceVariant: '#2C2C2E',      // Cards and containers
     onSurfaceVariant: '#98989D',    // Secondary text
@@ -15,21 +15,21 @@ export const theme = {
     glassBorder: 'rgba(255, 255, 255, 0.1)',
     glassHighlight: 'rgba(255, 255, 255, 0.05)',
 
-    // Primary colors - Vibrant gradient (Apple Fitness+ style)
+    // Primary colors 
     primary: '#FF375F',
-    primaryGradient: ['#FF375F', '#FF6B8A', '#FF9F9F'], // Pink to light pink
+    primaryGradient: ['#FF375F', '#FF6B8A', '#FF9F9F'], // Pink
     onPrimary: '#FFFFFF',
     primaryContainer: '#FF375F20',  // Translucent
     onPrimaryContainer: '#FF6B8A',
 
-    // Secondary - Electric cyan gradient (activity tracking)
+    // Secondary - cyan gradient 
     secondary: '#00D4FF',
     secondaryGradient: ['#00D4FF', '#5CE1E6', '#7FE7F0'], // Cyan gradient
     onSecondary: '#000000',
     secondaryContainer: '#00D4FF20',
     onSecondaryContainer: '#5CE1E6',
 
-    // Tertiary - Energy yellow gradient (calorie/intensity)
+    // Tertiary - yellow gradient 
     tertiary: '#FFD60A',
     tertiaryGradient: ['#FFD60A', '#FFE55C', '#FFF099'], // Yellow gradient
     onTertiary: '#000000',
@@ -47,19 +47,19 @@ export const theme = {
     zonePeakGradient: ['#FF453A', '#FF6B63', '#FF9691'],
 
     // Error colors
-    error: '#FF453A',               // Apple red
+    error: '#FF453A',               // Red
     onError: '#FFFFFF',
     errorContainer: '#FF453A20',
     onErrorContainer: '#FF6B63',
 
     // Success colors
-    success: '#30D158',             // Apple green
+    success: '#30D158',             // Green
     onSuccess: '#000000',
     successContainer: '#30D15820',
     onSuccessContainer: '#64D988',
 
     // Warning colors
-    warning: '#FF9F0A',             // Apple orange
+    warning: '#FF9F0A',             // Orange
     onWarning: '#000000',
     warningContainer: '#FF9F0A20',
     onWarningContainer: '#FFB340',
@@ -204,7 +204,7 @@ export type ThemeColors = typeof theme.colors;
 export type ThemeSpacing = typeof theme.spacing;
 export type ThemeTypography = typeof theme.typography;
 
-// Helper functions for theme usage
+// Functions for theme usage
 export const getSpacing = (spacingKey: keyof ThemeSpacing): number => {
   return theme.spacing[spacingKey];
 };
@@ -220,5 +220,6 @@ export const lighten = (color: string, amount: number): string => {
   // Simple color lightening - in production you'd use a proper color library
   return `${color}${Math.round((1 - amount) * 255).toString(16).padStart(2, '0')}`;
 };
+
 
 export default theme;
