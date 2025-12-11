@@ -1,4 +1,4 @@
-// src/screens/DashboardScreen.tsx - Premium dashboard home screen
+// src/screens/DashboardScreen.tsx - Dashboard home screen
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -36,7 +36,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
     loadDashboardData();
   }, []);
 
-  // Pulsing animation for active monitoring indicator
+  // A pulsing animation for active monitoring indicator
   useEffect(() => {
     if (isConnected) {
       Animated.loop(
@@ -60,7 +60,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
 
   const loadDashboardData = async () => {
     try {
-      // Load recent sessions
+      // Loads recent sessions
       const sessions = await DataManager.getAllSessions();
       setRecentSessions(sessions.slice(0, 5));
 
@@ -101,7 +101,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
           avgHR: totalPoints > 0 ? Math.round(totalHR / totalPoints) : 0,
           minHR: minHR === Infinity ? 0 : minHR,
           maxHR,
-          recordingTime: Math.round(totalTime / 60000), // Convert to minutes
+          recordingTime: Math.round(totalTime / 60000), // Converts to minutes
           dataPoints: totalPoints,
         });
       }
@@ -196,7 +196,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
           </TouchableOpacity>
         )}
 
-        {/* Today's Summary */}
+        {/* Gives Today's Summary */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Today's Activity</Text>
           <View style={styles.statsGrid}>
@@ -223,7 +223,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Recent Sessions */}
+        {/* The Recent Sessions */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Sessions</Text>
@@ -294,7 +294,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
     </ScrollView>
   );
 };
-
+// Generic UI to match app
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -490,3 +490,4 @@ const styles = StyleSheet.create({
 });
 
 export default DashboardScreen;
+
