@@ -1,5 +1,5 @@
-// csvParser.ts - CSV parser matching DataManager's actual export format
-// COMPLETELY REWRITTEN to match the actual CSV schema exported by DataManager
+// csvParser.ts - CSV parser matching DataManager's export format
+
 
 /**
  * Enhanced sensor reading interface matching DataManager's CSV export format
@@ -469,3 +469,4 @@ export function validateCSVFormat(csvContent: string): {
     errors,
   };
 }
+
