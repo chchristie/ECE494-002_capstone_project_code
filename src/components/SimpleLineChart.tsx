@@ -1,4 +1,4 @@
-// SimpleLineChart.tsx - Lightweight SVG-based line chart
+// SimpleLineChart.tsx - Lightweight SVG-based line chart used as primary chart the heart chart is secondary and was made earlier in semester currently a fall back
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import Svg, { Line, Circle, Polyline, Text as SvgText, Rect } from 'react-native-svg';
@@ -6,7 +6,7 @@ import { theme } from '../styles/theme';
 
 interface ChartData {
   value: number | null;  // null values create breaks in the line
-  timestamp?: Date | number;  // Date object or milliseconds timestamp
+  timestamp?: Date | number;  // Date object and/or milliseconds timestamp
 }
 
 interface SimpleLineChartProps {
@@ -16,11 +16,11 @@ interface SimpleLineChartProps {
   color?: string;
   title?: string;
   yAxisLabel?: string;
-  yMin?: number;  // Fixed minimum Y value
+  yMin?: number;  // Fixed minimum Y value to keep line centered on chart
   yMax?: number;  // Fixed maximum Y value
-  showXAxisTime?: boolean;  // Show time labels on X-axis
-  forceIntegerTicks?: boolean;  // Force y-axis ticks to be integers
-  yAxisDecimalPlaces?: number;  // Number of decimal places for y-axis labels
+  showXAxisTime?: boolean;  // Shows time labels on X-axis
+  forceIntegerTicks?: boolean;  // Forces y-axis ticks to be integers
+  yAxisDecimalPlaces?: number;  // Number of decimal places for the y-axis labels
 }
 
 export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
@@ -48,7 +48,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
   const chartWidth = width - padding * 2;
   const chartHeight = height - padding * 2;
 
-  // Calculate min/max for scaling (filter out null values)
+  // Calculates min/max for scaling for heart rate variability (filters out null values)
   const values = data.map(d => d.value).filter((v): v is number => v !== null);
   const minValue = yMin !== undefined ? yMin : Math.min(...values);
   const maxValue = yMax !== undefined ? yMax : Math.max(...values);
@@ -61,7 +61,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
     return chartHeight - (normalized * chartHeight) + padding;
   };
 
-  // Split data into continuous segments (breaks at null values) and track connectors
+  // Splits data into continuous segments (breaks at null values) and tracks connectors
   const segments: Array<{ startIndex: number; points: string; lastPoint: { x: number; y: number }; isIsolated: boolean }> = [];
   const connectors: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
   const isolatedPoints: Array<{ x: number; y: number; index: number }> = [];
@@ -73,7 +73,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
     if (d.value !== null) {
       if (currentSegment.length === 0) {
         segmentStartIndex = i;
-        // If there was a previous segment, create a dashed connector
+        // If there was a previous segment, this creates a dashed connector
         if (lastSegmentEnd !== null) {
           connectors.push({
             x1: lastSegmentEnd.x,
@@ -86,13 +86,13 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
       currentSegment.push({ x: scaleX(i), y: scaleY(d.value), index: i });
     } else {
       if (currentSegment.length > 0) {
-        // End current segment
+        // End for current segment
         const points = currentSegment.map(p => `${p.x},${p.y}`).join(' ');
         const lastPoint = currentSegment[currentSegment.length - 1];
         const isIsolated = currentSegment.length === 1;
         
         if (isIsolated) {
-          // Add to isolated points instead of segments
+          // Adds to isolated points instead of segments
           isolatedPoints.push(currentSegment[0]);
         } else {
           segments.push({ startIndex: segmentStartIndex, points, lastPoint: { x: lastPoint.x, y: lastPoint.y }, isIsolated: false });
@@ -104,27 +104,27 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
     }
   });
 
-  // Add final segment if exists
+  // Adds final segment if such exists
   if (currentSegment.length > 0) {
     const points = currentSegment.map(p => `${p.x},${p.y}`).join(' ');
     const lastPoint = currentSegment[currentSegment.length - 1];
     const isIsolated = currentSegment.length === 1;
     
     if (isIsolated) {
-      // Add to isolated points instead of segments
+      // Adds to the isolated points instead of segments
       isolatedPoints.push(currentSegment[0]);
     } else {
       segments.push({ startIndex: segmentStartIndex, points, lastPoint: { x: lastPoint.x, y: lastPoint.y }, isIsolated: false });
     }
   }
 
-  // Handle missing data at start/end with horizontal dashed lines
+  // Handles missing data at start/end with horizontal dashed lines
   const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
   
   const hasData = segments.length > 0 || isolatedPoints.length > 0;
   
   if (hasData) {
-    // Find first and last valid indices
+    // Finds first and last valid indices
     const firstValidIndex = data.findIndex(d => d.value !== null);
     const lastValidIndex = data.length - 1 - [...data].reverse().findIndex(d => d.value !== null);
     
@@ -151,9 +151,9 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
     }
   }
   
-  // Add connectors for isolated points
+  // Adds connectors for isolated points
   isolatedPoints.forEach((point) => {
-    // Find previous non-null point
+    // Finds previous non-null point
     let prevIndex = -1;
     for (let i = point.index - 1; i >= 0; i--) {
       if (data[i].value !== null) {
@@ -162,7 +162,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
       }
     }
     
-    // Find next non-null point
+    // Finds next non-null point
     let nextIndex = -1;
     for (let i = point.index + 1; i < data.length; i++) {
       if (data[i].value !== null) {
@@ -171,7 +171,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
       }
     }
     
-    // Add connectors if adjacent points exist
+    // Adds connectors if an adjacent points exist
     if (prevIndex >= 0) {
       connectors.push({
         x1: scaleX(prevIndex),
@@ -195,11 +195,11 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
   let yTickValues: number[];
   
   if (forceIntegerTicks) {
-    // Calculate nice integer tick interval
+    // Calculates round integer for tick interval
     const targetTicks = 5;
     const rawInterval = valueRange / (targetTicks - 1);
     
-    // Round to a nice number (1, 2, 5, 10, 20, 50, etc.)
+    // Rounds to a number that scales depinding on variable (1, 2, 5, 10, 20, 50, etc.)
     const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)));
     const normalized = rawInterval / magnitude;
     let niceInterval: number;
@@ -214,7 +214,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
       niceInterval = 10 * magnitude;
     }
     
-    // Generate ticks starting from a nice round number
+    // Generates ticks starting from round number
     const tickStart = Math.ceil(minValue / niceInterval) * niceInterval;
     yTickValues = [];
     
@@ -222,7 +222,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
       yTickValues.push(tick);
     }
     
-    // Ensure we have at least 2 ticks
+    // Ensures we have at least 2 ticks
     if (yTickValues.length < 2) {
       yTickValues = [Math.ceil(minValue), Math.floor(maxValue)];
     }
@@ -400,7 +400,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
         </Svg>
       </ScrollView>
 
-      {/* Stats footer */}
+      {/* Stats footer for easier reading of data */}
       <View style={styles.statsFooter}>
         <Text style={styles.statText}>
           Min: {yAxisDecimalPlaces !== undefined ? minValue.toFixed(yAxisDecimalPlaces) : (forceIntegerTicks || valueRange >= 10 ? Math.round(minValue) : minValue.toFixed(2))}
@@ -448,3 +448,4 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurfaceVariant,
   },
 });
+
