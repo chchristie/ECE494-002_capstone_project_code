@@ -30,7 +30,7 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
   const [maxMagnitude, setMaxMagnitude] = useState(0);
   const { state, sensorData, isConnected } = useBluetooth();
 
-  // Update readings from real sensor data
+  // Updates readings from sensor data
   useEffect(() => {
     if (sensorData.accelerometer && isConnected) {
       console.log('✅ Accel Screen received data:', sensorData.accelerometer.magnitude, 'milli-g');
@@ -45,7 +45,7 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
       setReadings(prev => {
         const updated = [...prev.slice(-29), newReading];
         
-        // Update max magnitude for scaling
+        // Update max magnitude for scaling the charts
         const maxMag = Math.max(...updated.map(r => r.magnitude));
         setMaxMagnitude(maxMag);
         
@@ -54,7 +54,7 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
     }
   }, [sensorData.accelerometer, isConnected]);
 
-  // Calculate statistics
+  // Calculate statistics for averages
   const stats = React.useMemo(() => {
     if (readings.length === 0) {
       return { avgX: 0, avgY: 0, avgZ: 0, avgMag: 0, peakMag: 0 };
@@ -69,7 +69,7 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
     return { avgX, avgY, avgZ, avgMag, peakMag };
   }, [readings]);
 
-  // Simple bar chart for recent readings
+  // Bar chart for the recent readings
   const renderMagnitudeChart = () => {
     if (readings.length === 0) return null;
 
@@ -110,7 +110,7 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
     );
   };
 
-  // Current acceleration display
+  // Current acceleration display- stays up to date within 200ms
   const currentReading = readings[readings.length - 1];
 
   return (
@@ -242,7 +242,7 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
           </View>
         )}
 
-        {/* Info Card */}
+        {/* Info Card-when not connected */}
         <View style={styles.infoCard}>
           <Icon name="info-outline" size={20} color={theme.colors.secondary} />
           <View style={styles.infoContent}>
@@ -256,6 +256,8 @@ const AccelerometerScreen: React.FC<AccelerometerScreenProps> = ({ navigation, r
     </ScrollView>
   );
 };
+
+//Generic UI to match other screens
 
 const styles = StyleSheet.create({
   container: {
@@ -439,3 +441,4 @@ const styles = StyleSheet.create({
 });
 
 export default AccelerometerScreen;
+
