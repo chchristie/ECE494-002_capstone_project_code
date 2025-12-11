@@ -11,14 +11,14 @@ import {
 const SQLite = require('react-native-sqlite-storage');
 SQLite.enablePromise(true);
 
-// Legacy type for backward compatibility
+// Legacy type for backwards compatibility
 export interface HeartRateReading {
   id: string;
   timestamp: Date;
   heartRate: number;
 }
 
-// Enhanced sensor reading for research-grade data
+// Enhanced sensor readings
 export interface EnhancedSensorReading {
   id: string;
   sessionId: string;
@@ -51,7 +51,7 @@ export interface EnhancedSensorReading {
   rawData?: string;
 }
 
-// Session management for research workflows
+// Session management
 export interface MonitoringSession {
   id: string;
   startTime: Date;
@@ -461,7 +461,7 @@ export class DataManager {
     }
   }
 
-  // Increment session data count
+  // Increments session data count
   private static async incrementSessionDataCount(sessionId: string): Promise<void> {
     try {
       await this.db.executeSql(
@@ -473,10 +473,10 @@ export class DataManager {
     }
   }
 
-  // Legacy API compatibility for existing components
+  // API compatibility for existing components
   static async addReading(heartRate: number): Promise<HeartRateReading[]> {
     try {
-      // Get or create active session
+      // Gets or creates active session
       const activeSessions = await this.getActiveSessions();
       let sessionId = activeSessions[0]?.id;
       
@@ -599,7 +599,7 @@ export class DataManager {
   }
 
   // Get downsampled accelerometer readings for charting
-  // Gets the first sample from every Nth secondCounter (default: every 10th = one sample per 20 seconds)
+  // Gets the first sample from every Nth secondCounter (default: every 10th = one sample per 20 seconds) to match data screen
   static async getAccelerometerReadingsDownsampled(
     sessionId: string, 
     secondCounterInterval: number = 10
@@ -714,16 +714,16 @@ export class DataManager {
     return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  // Delete a session and all its readings
+  // Deletes a session and all its readings
   static async deleteSession(sessionId: string): Promise<void> {
     try {
-      // Delete readings first (foreign key relationship)
+      // Deletes readings first (foreign key relationship)
       await this.db.executeSql(
         'DELETE FROM sensor_readings WHERE session_id = ?',
         [sessionId]
       );
 
-      // Then delete session
+      // Then deletes session
       await this.db.executeSql(
         'DELETE FROM monitoring_sessions WHERE id = ?',
         [sessionId]
@@ -734,7 +734,7 @@ export class DataManager {
     }
   }
 
-  // **NEW: Data Export Functionality**
+  //  Data Export Functionality
   static async exportSessionData(sessionId: string): Promise<string> {
     try {
       const session = await this.getSession(sessionId);
@@ -831,7 +831,7 @@ export class DataManager {
     }
   }
 
-  // **NEW: CSV Export - Research-friendly format**
+  // CSV Export 
   static async exportAllDataCSV(): Promise<string> {
     try {
       const sessions = await this.getAllSessions();
@@ -1000,7 +1000,7 @@ export class DataManager {
     }
   }
 
-  // Export accelerometer data as JSON
+  // Exports accelerometer data as JSON
   static async exportSessionAccelerometerJSON(sessionId: string): Promise<string> {
     try {
       const session = await this.getSession(sessionId);
@@ -1041,7 +1041,7 @@ export class DataManager {
     }
   }
 
-  // **NEW: Lightweight session summary (NO data loading)**
+  // A Lightweight session summary 
   static async getSessionSummary(sessionId: string): Promise<{
     session: MonitoringSession | null;
     readingCount: number;
@@ -1085,7 +1085,7 @@ export class DataManager {
     }
   }
 
-  // **NEW: Database Statistics**
+  // Database Statistics
   static async getDatabaseStats(): Promise<{
     totalReadings: number;
     totalSessions: number;
@@ -1138,21 +1138,21 @@ export class DataManager {
     };
   }
 
-  // **NEW: Database Maintenance - Clean old data**
+  // Database Maintenance - Clean old data Currently set to 30 day old data
   static async cleanOldData(daysToKeep: number = 30): Promise<number> {
     const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
     let deletedCount = 0;
 
     try {
-      // Delete old sensor readings
+      // Deletes old sensor readings
       const result = await this.db.executeSql(
         'DELETE FROM sensor_readings WHERE timestamp < ?',
         [cutoffTime]
       );
       deletedCount = result[0].rowsAffected;
 
-      // Delete old accelerometer readings
-      // Delete by session_id since accelerometer_readings doesn't have timestamp
+      // Deletes old accelerometer readings
+      // Deletes by session_id since accelerometer_readings doesn't have timestamp
       await this.db.executeSql(
         `DELETE FROM accelerometer_readings 
          WHERE session_id IN (
@@ -1161,7 +1161,7 @@ export class DataManager {
         [cutoffTime]
       );
 
-      // Delete old sessions
+      // Deletes old sessions
       await this.db.executeSql(
         'DELETE FROM monitoring_sessions WHERE start_time < ?',
         [cutoffTime]
@@ -1182,7 +1182,7 @@ export class DataManager {
     }
   }
 
-  // Helper: Format bytes to human-readable
+  // Format bytes to be readable
   private static formatBytes(bytes: number): string {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -1191,5 +1191,6 @@ export class DataManager {
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   }
 }
+
 
 export default DataManager;
