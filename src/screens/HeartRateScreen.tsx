@@ -1,4 +1,4 @@
-// Fixed HeartRateScreen.tsx - Properly prioritizes Nordic sensor data
+// HeartRateScreen.tsx -  Displays Heart Rate: Where most components are used since this was the original screen, components were part of the early app when i was messing around with react native ui effects
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -34,7 +34,7 @@ interface HeartRateStats {
   zone: 'resting' | 'fat_burn' | 'cardio' | 'peak';
 }
 
-// Heart rate zone calculations
+// Heart rate zone calculations based on average male
 const calculateHeartRateZone = (bpm: number, age: number = 30): HeartRateStats['zone'] => {
   const maxHR = 220 - age;
   const percentage = (bpm / maxHR) * 100;
@@ -65,7 +65,7 @@ const getZoneLabel = (zone: HeartRateStats['zone']): string => {
   return zoneLabels[zone];
 };
 
-// Calculate stats from readings
+// Calculates stats from readings
 const calculateStats = (readings: HeartRateReading[]): HeartRateStats => {
   if (readings.length === 0) {
     return { current: 0, average: 0, min: 0, max: 0, zone: 'resting' };
@@ -74,7 +74,7 @@ const calculateStats = (readings: HeartRateReading[]): HeartRateStats => {
   const values = readings.map(r => r.value);
   const current = readings[readings.length - 1]?.value || 0;
   
-  // Filter out 0 bpm values for statistics calculation
+  // Filters out 0 bpm values for statistics calculation
   const validValues = values.filter(val => val > 0);
   
   if (validValues.length === 0) {
@@ -89,7 +89,7 @@ const calculateStats = (readings: HeartRateReading[]): HeartRateStats => {
   return { current, average, min, max, zone };
 };
 
-// Convert readings to chart data format
+// Converts readings to chart data format
 const convertToChartData = (readings: HeartRateReading[]) => {
   return readings.map((reading, index) => ({
     x: index,
@@ -137,7 +137,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
     }
   }, [isConnected]);
 
-  // Animate heart rate value changes
+  // Animates heart rate value changes
   useEffect(() => {
     if (stats.current !== previousHR.current && stats.current > 0) {
       Animated.sequence([
@@ -156,7 +156,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
     }
   }, [stats.current]);
 
-  // **FIXED: Handle real Nordic sensor data - REPLACES simulation**
+  // FIXED: Handle Nordic sensor data - Replaces previously made simulation
   useEffect(() => {
     if (sensorData.heartRate && isConnected) {
 
@@ -170,14 +170,14 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
     }
   }, [sensorData.heartRate, isConnected]);
 
-  // Update stats when readings change
+  // Updates stats when readings change
   useEffect(() => {
     try {
       const newStats = calculateStats(readings);
       setStats(newStats);
     } catch (error) {
       console.error('Error calculating stats:', error);
-      // Set safe default stats on error
+      // Sets safe default stats on error
       setStats({ current: 0, average: 0, min: 0, max: 0, zone: 'resting' });
     }
   }, [readings]);
@@ -191,7 +191,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
     }
   };
 
-  // Convert and validate chart data
+  // Converts and validates chart data
   const chartData = React.useMemo(() => {
     try {
       return convertToChartData(readings);
@@ -203,13 +203,13 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
 
   return (
     <ScrollView style={styles.container}>
-      {/* Connection particles effect */}
+      {/* Connection particles effect- Compent */}
       <ConnectionPulse isActive={isConnected} color={theme.colors.success} />
 
       <View style={styles.content}>
-        {/* Current Heart Rate Display with Glass Morphism */}
+        {/* Current Heart Rate Display with Glass Morphism-Component */}
         <GlassContainer style={styles.glassContainer}>
-          {/* 3D Animated Heart */}
+          {/* 3D Animated Heart- Component */}
           <View style={styles.heartSection}>
             <Heart3D
               size={80}
@@ -224,7 +224,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
             />
           </View>
 
-          {/* Heart Rate Value with Gradient Text */}
+          {/* Heart Rate Value with Gradient Text- Component */}
           <Animated.View
             style={[
               styles.rateDisplay,
@@ -285,7 +285,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
           )}
         </GlassContainer>
 
-        {/* **FIXED: Enhanced Connection Status** */}
+        {/* FIXED: Enhanced Connection Status */}
         <View style={styles.statusContainer}>
           <Icon
             name={isConnected ? 'bluetooth-connected' : 'bluetooth-disabled'}
@@ -307,7 +307,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
           </View>
         </View>
 
-        {/* Statistics Cards with Neumorphic Design */}
+        {/* Statistics Cards with Neumorphic Design-Components */}
         <View style={styles.statsContainer}>
           <NeumorphicCard style={styles.statCard}>
             <Text style={styles.statLabel}>Average</Text>
@@ -461,6 +461,7 @@ const HeartRateScreen: React.FC<HeartRateScreenProps> = ({ navigation, route }) 
   );
 };
 
+// Generic UI to match App
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -746,5 +747,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
+
 
 export default HeartRateScreen;
