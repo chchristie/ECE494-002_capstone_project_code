@@ -1,4 +1,4 @@
-// src/screens/DataManagementScreen.tsx - Premium data management interface
+// src/screens/DataManagementScreen.tsx - Data management interface
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -66,7 +66,7 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
     }
   };
 
-  // Load accelerometer setting from AsyncStorage
+  // Loads accelerometer setting from AsyncStorage
   const loadAccelerometerSetting = async () => {
     try {
       const stored = await AsyncStorage.getItem('accelerometer_enabled');
@@ -78,7 +78,7 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
     }
   };
 
-  // Save accelerometer setting to AsyncStorage
+  // Saves accelerometer setting to AsyncStorage
   const saveAccelerometerSetting = async (enabled: boolean) => {
     try {
       await AsyncStorage.setItem('accelerometer_enabled', enabled.toString());
@@ -87,7 +87,7 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
     }
   };
 
-  // Handle accelerometer toggle
+  // Handles the accelerometer toggle
   const handleAccelerometerToggle = (value: boolean) => {
     setAccelerometerEnabled(value);
     saveAccelerometerSetting(value);
@@ -112,7 +112,7 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
     loadAccelerometerSetting();
   }, []);
 
-  // Bluetooth connection checker - logs every 5 minutes
+  // Bluetooth connection checker - logs every 5 minutes to check for background bluetooth connection
   useEffect(() => {
     const checkConnection = () => {
       const timestamp = new Date();
@@ -123,7 +123,7 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
 
       setBluetoothCheckLog(prev => {
         const updated = [...prev, logEntry];
-        // Keep last 50 checks (up to ~4 hours of history)
+        // Keeps last 50 checks (up to ~4 hours of history)
         return updated.slice(-50);
       });
 
@@ -131,10 +131,10 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
       console.log(`[BT-CHECK ${timestamp.toLocaleTimeString()}] Bluetooth Connected: ${isConnected ? 'YES' : 'NO'}`);
     };
 
-    // Initial check when component mounts
+    // Initial check for when component mounts
     checkConnection();
 
-    // Set up 5-minute interval (300,000 ms)
+    // Set up 5-minute interval (300,000 ms) for background bluetooth monitoring
     const intervalId = setInterval(checkConnection, 5 * 60 * 1000);
 
     return () => {
@@ -544,7 +544,7 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
               </TouchableOpacity>
             </View>
 
-            {/* Danger Zone */}
+            {/* Old Data Warning */}
             <View style={styles.dangerSection}>
               <Text style={styles.sectionTitle}>Danger Zone</Text>
 
@@ -719,6 +719,7 @@ const DataManagementScreen: React.FC<DataManagementScreenProps> = ({ navigation 
   );
 };
 
+//Generic UI to match app
 const styles = StyleSheet.create({
   container: {
     flex: 1,

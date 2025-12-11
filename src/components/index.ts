@@ -1,4 +1,4 @@
-// src/components/index.ts - Central export for all premium UI components
+// src/components/index.ts - Central export for all the UI components
 export { GlassContainer } from './GlassContainer';
 export { NeumorphicCard } from './NeumorphicCard';
 export { SimpleGradientText } from './GradientText';

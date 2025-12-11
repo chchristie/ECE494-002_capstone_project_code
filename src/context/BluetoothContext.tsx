@@ -1,4 +1,4 @@
-// src/context/BluetoothContext.tsx - Fixed Nordic device detection
+// src/context/BluetoothContext.tsx - Nordic device detection and other ble components
 import React, { 
   createContext, 
   useContext, 
@@ -33,7 +33,7 @@ import {
 } from '../services/nordic-ble-services';
 import DataManager from '../services/DataManager';
 
-// Import foreground service module
+// Imports the foreground service module
 const { ForegroundServiceModule } = NativeModules;
 
 // BLE Manager setup
@@ -68,7 +68,7 @@ interface BluetoothState {
   };
 }
 
-// Sensor data stream - NO readonly properties
+// Sensor data stream - No read only properties
 interface SensorDataStream {
   heartRate: HeartRateData | null;
   spO2: SpO2Data | null;
@@ -81,7 +81,7 @@ interface SensorDataStream {
   qualityScore: number;
 }
 
-// Actions for reducer
+// Actions for the reducer
 type BluetoothAction = 
   | { type: 'SET_ENABLED'; payload: boolean }
   | { type: 'SET_SCANNING'; payload: boolean }
@@ -93,7 +93,7 @@ type BluetoothAction =
   | { type: 'SET_PERMISSIONS'; payload: { location: boolean; bluetooth: boolean } }
   | { type: 'CLEAR_DEVICES' };
 
-// Initial states
+// Sets initial states
 const initialState: BluetoothState = {
   isEnabled: false,
   isScanning: false,
@@ -119,7 +119,7 @@ const initialSensorData: SensorDataStream = {
   qualityScore: 0,
 };
 
-// Reducer
+// Reducer used 
 const bluetoothReducer = (state: BluetoothState, action: BluetoothAction): BluetoothState => {
   switch (action.type) {
     case 'SET_ENABLED':
@@ -172,7 +172,7 @@ const bluetoothReducer = (state: BluetoothState, action: BluetoothAction): Bluet
   }
 };
 
-// Context interface with all required properties including session management
+// Context interface with all the required properties including session management
 interface BluetoothContextValue {
   state: BluetoothState;
   sensorData: SensorDataStream;
@@ -194,14 +194,14 @@ interface BluetoothContextValue {
   getConnectionQuality: () => number;
 }
 
-// Create context
+// Creates context
 const BluetoothContext = createContext<BluetoothContextValue | null>(null);
 
-// UUID comparison helper (case-insensitive, handles both 16-bit and 128-bit UUIDs)
+// A UUID comparison helper (case-insensitive, handles both 16-bit and the 128-bit UUIDs) since their was early difficulty sensing which it was out putting
 const uuidMatches = (uuid1: string, uuid2: string): boolean => {
   if (!uuid1 || !uuid2) return false;
 
-  // Normalize UUIDs by removing dashes and converting to uppercase
+  // Normalizes the UUIDs by removing dashes and converting to uppercase
   const normalize = (uuid: string) => uuid.replace(/-/g, '').toUpperCase();
   const normalized1 = normalize(uuid1);
   const normalized2 = normalize(uuid2);
@@ -209,8 +209,8 @@ const uuidMatches = (uuid1: string, uuid2: string): boolean => {
   // Direct match
   if (normalized1 === normalized2) return true;
 
-  // Check if one is 16-bit and other is 128-bit (e.g., "180D" vs "0000180D-0000-1000-8000-00805F9B34FB")
-  // Standard BLE 16-bit UUIDs are expanded to: 0000XXXX-0000-1000-8000-00805F9B34FB
+  // Checks if one is 16-bit and the other is 128-bit 
+  // Standard BLE 16-bit UUIDs are then expanded to: 0000XXXX-0000-1000-8000-00805F9B34FB
   const bleBase = '0000100080' + '00' + '00805F9B34FB';
 
   if (normalized1.length === 4 && normalized2.length === 32) {
@@ -228,7 +228,7 @@ const uuidMatches = (uuid1: string, uuid2: string): boolean => {
   return false;
 };
 
-// Check if device advertises HRM or SpO2 service
+// Checks if device is advertising the HRM or SpO2 service- for debugging bothe the protype and the app
 const isCompatibleDevice = (device: any): boolean => {
   const advertisedServices = device.advertising?.serviceUUIDs || [];
   
@@ -245,8 +245,8 @@ const isCompatibleDevice = (device: any): boolean => {
   return hasHeartRateService || hasSpO2Service;
 };
 
-// NOTE: All data parsing now uses NordicDataParser for consistency
-// Removed duplicate local parsers - now import from nordic-ble-services.ts
+// All data parsing should now be using NordicDataParser for consistency
+// imports from nordic-ble-services.ts
 
 // Provider component
 export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -256,9 +256,9 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
   
   const dataRateRef = useRef<{ lastUpdate: number; count: number }>({ lastUpdate: Date.now(), count: 0 });
   const scanTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastValidHeartRateRef = useRef<number>(Date.now()); // Track last valid (>30) heart rate timestamp
+  const lastValidHeartRateRef = useRef<number>(Date.now()); // Track last valid (>30) heart rate timestamp to ignore false readings
 
-  // Buffer for batching database writes - ACCUMULATE all sensor types into ONE object
+  // Buffer for batching database writes - ACCUMULATE all sensor types into ONE object for the csv 
   const dbWriteBufferRef = useRef<{
     hr?: HeartRateData;
     spo2?: SpO2Data;
@@ -268,9 +268,9 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
   }>({ lastUpdate: Date.now() });
   const dbWriteTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Track which notifications have been received in current cycle
-  // Notification order: HR -> SpO2 -> Battery (every 2 seconds)
-  // Accelerometer is independent and sent every 200ms
+  // Tracks which notifications have been received in current cycle
+  // Notification order: HR -> SpO2 -> Battery (every 2 seconds) 0.5hz
+  // Accelerometer is independent and sent every 200ms to get more precise readings
   const cycleTrackingRef = useRef<{
     receivedHR: boolean;
     receivedSpO2: boolean;
@@ -353,55 +353,55 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
         let accelerometerUpdate: AccelerometerData | null = null;
         let bufferedAccelUpdate: BufferedAccelerometerData[] | null = null;
 
-        // Parse Heart Rate data - using NordicDataParser
+        // Parses Heart Rate data - using NordicDataParser
         if (uuidMatches(service, STANDARD_SERVICES.HEART_RATE) &&
             uuidMatches(characteristic, STANDARD_CHARACTERISTICS.HEART_RATE_MEASUREMENT)) {
           const buffer = new Uint8Array(value);
           heartRateUpdate = NordicDataParser.parseHeartRateData(buffer, state.connectedDevice.id);
         }
 
-        // Parse SpO2 from PULSE_OXIMETER service (0x1822) - using NordicDataParser
+        // Parsing SpO2 from PULSE_OXIMETER service (0x1822) - using NordicDataParser
         else if (uuidMatches(service, STANDARD_SERVICES.PULSE_OXIMETER) &&
                  uuidMatches(characteristic, STANDARD_CHARACTERISTICS.PLX_CONTINUOUS_MEASUREMENT)) {
           const buffer = new Uint8Array(value);
           spO2Update = NordicDataParser.parseSpO2Data(buffer, state.connectedDevice.id);
         }
 
-        // Parse Battery data - using NordicDataParser
+        // Parsing Battery data - using NordicDataParser
         else if (uuidMatches(service, STANDARD_SERVICES.BATTERY_SERVICE) &&
                  uuidMatches(characteristic, STANDARD_CHARACTERISTICS.BATTERY_LEVEL)) {
           const buffer = new Uint8Array(value);
           batteryUpdate = NordicDataParser.parseBatteryData(buffer, state.connectedDevice.id);
         }
 
-        // Parse Miscellaneous data (status, confidence, voltage) - using NordicDataParser
+        // Parsing Miscellaneous data (status, confidence, voltage) - using NordicDataParser
         else if (uuidMatches(service, SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE) &&
                  uuidMatches(characteristic, SEEDSTUDIO_CHARACTERISTICS.MISC_DATA)) {
           const buffer = new Uint8Array(value);
           miscUpdate = NordicDataParser.parseMiscData(buffer, state.connectedDevice.id);
         }
 
-        // Parse buffered accelerometer data (124 bytes) from custom service
+        // Parses the buffered accelerometer data (124 bytes) from custom service
         else if (uuidMatches(service, SEEDSTUDIO_SERVICES.ACCELEROMETER_SERVICE) &&
                  uuidMatches(characteristic, SEEDSTUDIO_CHARACTERISTICS.ACCELEROMETER_DATA)) {
           const buffer = new Uint8Array(value);
           
-          // Parse all 20 samples from the 124-byte packet
+          // Then parses all 20 samples from the 124-byte packet 
           bufferedAccelUpdate = NordicDataParser.parseBufferedAccelerometerData(buffer, state.connectedDevice.id);
-          // For UI display, use the first sample
+          // For the UI display, use the first sample
           if (bufferedAccelUpdate && bufferedAccelUpdate.length > 0) {
             accelerometerUpdate = bufferedAccelUpdate[0];
           }
         }
 
         if (heartRateUpdate || spO2Update || batteryUpdate || miscUpdate || accelerometerUpdate) {
-          // Track last valid heart rate for UI quality purposes only
+          // Tracks last valid heart rate for UI purposes 
           if (heartRateUpdate && heartRateUpdate.heartRate > 30) {
             lastValidHeartRateRef.current = Date.now();
           }
 
           if (activeSessionId) {
-            // Helper function to flush buffer to database
+            // Helper function to flush buffer to database for debugging
             const flushBuffer = (missedNotifications: string[] = []) => {
               const buffer = dbWriteBufferRef.current;
               
@@ -409,7 +409,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
                 console.log('⚠️ [Buffer] Missed notifications:', missedNotifications.join(', '));
               }
               
-              // Save HR, SpO2, Battery, Misc to sensor_readings table
+              // Saves HR, SpO2, Battery, Misc to sensor_readings table
               if (buffer.hr || buffer.spo2 || buffer.battery || buffer.misc) {
                 DataManager.saveNordicReading(
                   activeSessionId,
@@ -422,7 +422,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
                 });
               }
               
-              // Reset buffer and cycle tracking
+              // Resets the buffer and cycle tracking
               dbWriteBufferRef.current = { lastUpdate: Date.now() };
               cycleTrackingRef.current = {
                 receivedHR: false,
@@ -431,11 +431,11 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
               };
             };
 
-            // Check for missed notifications (cycle restart detection)
+            // Checks for missed notifications for errors
             const missedNotifications: string[] = [];
             
             if (heartRateUpdate) {
-              // If we already received HR in this cycle, we missed Battery from previous cycle
+              // Sets logic for it has already received HR in this cycle, the its missed Battery from the previous cycle
               if (cycleTrackingRef.current.receivedHR) {
                 if (!cycleTrackingRef.current.receivedBattery) missedNotifications.push('Battery');
                 flushBuffer(missedNotifications);
@@ -445,7 +445,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
             }
             
             if (spO2Update) {
-              // If we get SpO2 without first getting HR, previous cycle was incomplete
+              // If it gets SpO2 without first getting HR, previous cycle was incomplete
               if (!cycleTrackingRef.current.receivedHR && cycleTrackingRef.current.receivedBattery) {
                 if (!cycleTrackingRef.current.receivedHR) missedNotifications.push('HeartRate');
                 flushBuffer(missedNotifications);
@@ -462,7 +462,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
               dbWriteBufferRef.current.battery = batteryUpdate;
               cycleTrackingRef.current.receivedBattery = true;
               
-              // Capture buffer values BEFORE flushing (flush clears the buffer!)
+              // Capture buffer values BEFORE flushing 
               const capturedHR = dbWriteBufferRef.current.hr;
               const capturedSpO2 = dbWriteBufferRef.current.spo2;
               const capturedBattery = dbWriteBufferRef.current.battery;
@@ -471,8 +471,8 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
               // Battery is the last notification in the cycle - flush buffer
               flushBuffer();
               
-              // Force UI update after flush with all vitals
-              // This ensures all panels update together
+              // Force the UI update after flush with all the vitals
+              // This ensures all panels update together for clarityand to keep csv simplified
               const now = Date.now();
               setSensorData(prev => {
                 const timeDiff = now - dataRateRef.current.lastUpdate;
@@ -499,7 +499,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
               });
             }
             
-            // Accelerometer is independent and saved immediately to separate table
+            // Accelerometer is independent and saves immediately to a separate table
             if (accelerometerUpdate && bufferedAccelUpdate && bufferedAccelUpdate.length > 0) {
               //console.log(`💾 [Accel] Saving ${bufferedAccelUpdate.length} buffered accel samples`);
                DataManager.saveAccelerometerReadings(
@@ -513,8 +513,8 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
             dbWriteBufferRef.current.lastUpdate = Date.now();
           }
 
-          // Throttle UI updates to max 10 per second (100ms interval)
-          // BUT always update if we have new accelerometer data
+          // Throttles UI updates to max 10 per second (100ms interval)
+          // BUT always immeaditly updates when it has new accelerometer data
           const now = Date.now();
           //const timeSinceLastUiUpdate = now - lastUiUpdateRef.current;
 
@@ -537,8 +537,8 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
               const newBattery = batteryUpdate || prev.battery;
               const newMiscData = miscUpdate || prev.miscData;
 
-              // For accelerometer, always create new object if we have an update
-              // This ensures React detects the change
+              // For accelerometer, always create new object if it has an update
+              // This ensures React detects the changes
               const newAccelerometer = accelerometerUpdate 
                 ? { ...accelerometerUpdate }
                 : prev.accelerometer;
@@ -554,7 +554,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
                 lastUpdate: new Date(),
                 dataRate,
                 totalReadings: prev.totalReadings + 1,
-                qualityScore: 0,  // Signal quality removed
+                qualityScore: 0,  // Signal quality has been removed
               };
             });
           }
@@ -565,7 +565,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
       }
     };
 
-    // Subscribe to BLE events
+    // Subscribes to BLE events
     const listeners = [
       BleManagerEmitter.addListener('BleManagerDiscoverPeripheral', handleDiscoverPeripheral),
       BleManagerEmitter.addListener('BleManagerDidUpdatePeripheral', handleUpdatePeripheral),
@@ -580,7 +580,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
       }
       if (dbWriteTimerRef.current) {
         clearTimeout(dbWriteTimerRef.current);
-        // Flush any remaining buffered data
+        // Flushes any remaining buffered data
         const buffer = dbWriteBufferRef.current;
         if (activeSessionId && (buffer.hr || buffer.spo2 || buffer.battery || buffer.misc)) {
           DataManager.saveNordicReading(
@@ -667,7 +667,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
 
       scanTimeoutRef.current = setTimeout(() => {
         stopScan();
-      }, 20000); // Extended to 20 seconds
+      }, 20000); // Extended to 20 seconds for timeout
 
     } catch (error) {
       console.error('Scan start error:', error);
@@ -697,7 +697,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
 
       await BleManager.connect(deviceId);
 
-      // Retrieve services
+      // Retrieves the services
       const peripheralInfo = await BleManager.retrieveServices(deviceId);
       
       const device = state.availableDevices.find(d => d.id === deviceId);
@@ -731,16 +731,16 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
 
       dispatch({ type: 'SET_CONNECTED_DEVICE', payload: connectedDevice });
 
-      // Auto-subscribe to all characteristics
+      // Auto-subscribes to all characteristics
       await subscribeToHeartRate(deviceId);
       await subscribeToSpO2(deviceId);
       await subscribeToBattery(deviceId);
       await subscribeToMiscData(deviceId);
       
-      // Check if accelerometer is enabled before subscribing
+      // Checks if accelerometer is enabled before subscribing
       const accelEnabled = await AsyncStorage.getItem('accelerometer_enabled');
       if (accelEnabled === null || accelEnabled === 'true') {
-        // Default to true if not set
+        // Defaults to true if not set
         await subscribeToAccelerometer(deviceId);
       } else {
         console.log('⚙️ Accelerometer disabled by user setting - skipping subscription');
@@ -761,7 +761,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
     if (!state.connectedDevice) return;
 
     try {
-      // Clean up polling intervals
+      // Cleans up  the polling intervals
       if ((state.connectedDevice as any).hrPollInterval) {
         clearInterval((state.connectedDevice as any).hrPollInterval);
       }
@@ -801,7 +801,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
         return false;
       }
 
-      // Check if Notify property exists (can be boolean true or string "Notify")
+      // Checks if Notify property exists 
       const hasNotify = hrChar.properties?.Notify === true ||
                        hrChar.properties?.Notify === "Notify";
 
@@ -1046,7 +1046,7 @@ export const BluetoothProvider: React.FC<{ children: ReactNode }> = ({ children 
     return 10;
   }, [state.connectedDevice]);
 
-  // Memoized context value with session management
+  // Saves context value with session management
   const contextValue = useMemo<BluetoothContextValue>(() => ({
     state,
     sensorData,

@@ -1,4 +1,4 @@
-// src/components/ParticleEffects.tsx - Particle system for connection animations
+// src/components/ParticleEffects.tsx - Particle system for connection animations- occasionally worked may not be in current version
 import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Animated, Dimensions } from 'react-native';
 import { theme } from '../styles/theme';
@@ -35,21 +35,21 @@ export const ParticleEffects: React.FC<ParticleEffectsProps> = ({
 
   useEffect(() => {
     if (isActive) {
-      // Create initial particles
+      // Creates initial particles
       const newParticles: Particle[] = [];
       for (let i = 0; i < particleCount; i++) {
         newParticles.push(createParticle(i));
       }
       setParticles(newParticles);
 
-      // Start animations
+      // Starts animations
       newParticles.forEach((particle, index) => {
         setTimeout(() => {
           animateParticle(particle, index);
         }, Math.random() * 500);
       });
     } else {
-      // Clear particles when inactive
+      // Clears the  particles when inactive
       animationRefs.current.forEach(anim => anim?.stop());
       animationRefs.current = [];
       setParticles([]);
@@ -81,20 +81,20 @@ export const ParticleEffects: React.FC<ParticleEffectsProps> = ({
     const centerX = width / 2;
     const centerY = height / 2;
 
-    // Random direction
+    // Random direction for particle splatter
     const angle = (Math.PI * 2 * index) / particleCount + (Math.random() - 0.5) * 0.5;
     const distance = 100 + Math.random() * 100;
     const targetX = centerX + Math.cos(angle) * distance;
     const targetY = centerY + Math.sin(angle) * distance;
 
-    // Reset particle to center
+    // Resets particle to center
     particle.x.setValue(centerX);
     particle.y.setValue(centerY);
     particle.opacity.setValue(0);
     particle.scale.setValue(0);
 
     const animation = Animated.parallel([
-      // Move outward
+      // Moves outward
       Animated.timing(particle.x, {
         toValue: targetX,
         duration: duration,
@@ -105,7 +105,7 @@ export const ParticleEffects: React.FC<ParticleEffectsProps> = ({
         duration: duration,
         useNativeDriver: true,
       }),
-      // Fade in then out
+      // Fades in then out for effect
       Animated.sequence([
         Animated.timing(particle.opacity, {
           toValue: 0.8,
@@ -118,7 +118,7 @@ export const ParticleEffects: React.FC<ParticleEffectsProps> = ({
           useNativeDriver: true,
         }),
       ]),
-      // Scale animation
+      // Scales the  animation
       Animated.sequence([
         Animated.timing(particle.scale, {
           toValue: 1,
@@ -137,7 +137,7 @@ export const ParticleEffects: React.FC<ParticleEffectsProps> = ({
 
     animation.start(({ finished }) => {
       if (finished && isActive) {
-        // Loop the animation
+        // Loops the animation
         setTimeout(() => animateParticle(particle, index), Math.random() * 500);
       }
     });
@@ -172,7 +172,7 @@ export const ParticleEffects: React.FC<ParticleEffectsProps> = ({
   );
 };
 
-// Connection pulse effect - expands from center
+// Connection pulse effect - expands from center supposed to be for the beating heart effect 
 export const ConnectionPulse: React.FC<{
   isActive: boolean;
   color?: string;
@@ -235,7 +235,7 @@ export const ConnectionPulse: React.FC<{
   );
 };
 
-// Floating particles background effect
+// Floatings particles for a background effect
 export const FloatingParticles: React.FC<{
   particleCount?: number;
   color?: string;

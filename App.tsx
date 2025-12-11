@@ -1,4 +1,4 @@
-// App.tsx - Enhanced with SQLite DataManager initialization
+// App.tsx 
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
-// Import your existing screens
+// Imports existing screens
 import DashboardScreen from './src/screens/DashboardScreen';
 import HeartRateScreen from './src/screens/HeartRateScreen';
 import AccelerometerScreen from './src/screens/AccelerometerScreen';
@@ -19,20 +19,20 @@ import TrendsScreen from './src/screens/TrendsScreen';
 import DataManagementScreen from './src/screens/DataManagementScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
 
-// Import components
+// Imports components
 import ErrorBoundary from './src/components/ErrorBoundary';
 import { BluetoothProvider } from './src/context/BluetoothContext';
 import BluetoothContext from './src/context/BluetoothContext';
 
 const BluetoothConsumer = BluetoothContext.Consumer;
 
-// Import enhanced DataManager (case-sensitive fix)
+// Imports enhanced DataManager (case-sensitive fix)
 import DataManager from './src/services/DataManager';
 
-// Import theme
+// Imports theme
 import { theme } from './src/styles/theme';
 
-// Import types
+// Imports types
 import type { SimpleNavigationProps } from './src/types/simple-navigation';
 
 // Type definitions
@@ -45,7 +45,7 @@ interface TabConfig {
   component: React.ComponentType<any>;
 }
 
-// Tab configuration - Max 4 tabs for optimal UX (industry best practice)
+// Tab configuration - 4 Tabs
 const tabs: TabConfig[] = [
   {
     name: 'Dashboard',
@@ -73,7 +73,7 @@ const tabs: TabConfig[] = [
   },
 ];
 
-// Premium tab bar button with Apple Fitness+ style
+// Tab bar burrons
 const TabButton: React.FC<{
   tab: TabConfig;
   isActive: boolean;
@@ -109,7 +109,7 @@ const TabButton: React.FC<{
   );
 };
 
-// Component wrapper to safely pass props
+// Component wrapper 
 const ScreenWrapper: React.FC<{
   Component: React.ComponentType<any>;
   navigation: SimpleNavigationProps['navigation'];
@@ -127,7 +127,7 @@ const ScreenWrapper: React.FC<{
   }
 };
 
-// Loading screen component
+// Loading screen component no longer used
 const LoadingScreen: React.FC = () => (
   <View style={styles.loadingContainer}>
     <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -153,7 +153,7 @@ const App: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
 
-  // Initialize SQLite database on app startup
+  // Initializes SQLite database on app startup
   useEffect(() => {
     const initializeApp = async () => {
       try {
@@ -197,7 +197,7 @@ const App: React.FC = () => {
      activeTab === 'Accelerometer' ? AccelerometerScreen :
      DashboardScreen);
 
-  // Create mock navigation prop for screens
+  // Creates a mock navigation prop for screens
   const mockNavigation = {
     navigate: (routeName: string) => {
       console.log('Navigation called:', routeName);
@@ -304,6 +304,7 @@ const App: React.FC = () => {
   );
 };
 
+// Generic UI to match App
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -449,3 +450,4 @@ const styles = StyleSheet.create({
 });
 
 export default App;
+

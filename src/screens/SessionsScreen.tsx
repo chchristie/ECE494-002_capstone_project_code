@@ -32,7 +32,7 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
   const [currentOffset, setCurrentOffset] = useState(0);
   const [hasMoreData, setHasMoreData] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [dataViewMode, setDataViewMode] = useState<'vitals' | 'accelerometer'>('vitals'); // Toggle between tables
+  const [dataViewMode, setDataViewMode] = useState<'vitals' | 'accelerometer'>('vitals'); // Toggles between tables
   const [totalAccelRecords, setTotalAccelRecords] = useState(0); // Total accelerometer records for current session
   
   const RECORDS_PER_PAGE = 100;
@@ -60,11 +60,11 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
     setSelectedSessionInfo(session);
     setCurrentOffset(0);
     setHasMoreData(true);
-    setDataViewMode('vitals'); // Default to vitals view
+    setDataViewMode('vitals'); // Defaults to vitals view when opened
     
     try {
       const readings = await DataManager.getSessionReadings(session.id);
-      // Load only first 100 records
+      // Load only the first 100 records
       const initialData = readings.slice(0, RECORDS_PER_PAGE);
       setSelectedSessionData(initialData);
       setHasMoreData(readings.length > RECORDS_PER_PAGE);
@@ -101,7 +101,7 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
         setCurrentOffset(RECORDS_PER_PAGE);
       } else {
         const accelReadings = await DataManager.getAccelerometerReadings(selectedSessionInfo.id);
-        setTotalAccelRecords(accelReadings.length); // Store total accelerometer count
+        setTotalAccelRecords(accelReadings.length); // Stores total accelerometer count
         const initialData = accelReadings.slice(0, RECORDS_PER_PAGE);
         setSelectedSessionData(initialData);
         setHasMoreData(accelReadings.length > RECORDS_PER_PAGE);
@@ -223,12 +223,12 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
             try {
               console.log('📤 [Export] Starting CSV export for session:', sessionId);
               
-              // Export vitals CSV
+              // Export the vitals CSV
               console.log('📄 [Export] Generating vitals CSV data...');
               const vitalsCSV = await DataManager.exportSessionCSV(sessionId);
               console.log(`📄 [Export] Vitals CSV size: ${vitalsCSV.length} bytes`);
               
-              // Export accelerometer CSV
+              // Export the accelerometer CSV
               console.log('📄 [Export] Generating accelerometer CSV data...');
               const accelCSV = await DataManager.exportSessionAccelerometerCSV(sessionId);
               console.log(`📄 [Export] Accelerometer CSV size: ${accelCSV.length} bytes`);
@@ -237,10 +237,10 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
               const vitalsFilename = `Session_${sessionId.slice(-8)}_Vitals_${timestamp}.csv`;
               const accelFilename = `Session_${sessionId.slice(-8)}_Accel_${timestamp}.csv`;
               
-              // Use app's external storage directory (Android 10+ compatible)
+              // Uses the app's external storage directory (Android 10+ compatible)
               const exportDir = `${RNFS.ExternalDirectoryPath}/Exports`;
               
-              // Create export directory if it doesn't exist
+              // Creates an export directory if it doesn't exist
               const dirExists = await RNFS.exists(exportDir);
               if (!dirExists) {
                 console.log('📁 [Export] Creating export directory:', exportDir);
@@ -280,12 +280,12 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
             try {
               console.log('📤 [Export] Starting JSON export for session:', sessionId);
               
-              // Export vitals JSON
+              // Exports vitals JSON
               console.log('📄 [Export] Generating vitals JSON data...');
               const vitalsJSON = await DataManager.exportSessionData(sessionId);
               console.log(`📄 [Export] Vitals JSON size: ${vitalsJSON.length} bytes`);
               
-              // Export accelerometer JSON
+              // Exports accelerometer JSON
               console.log('📄 [Export] Generating accelerometer JSON data...');
               const accelJSON = await DataManager.exportSessionAccelerometerJSON(sessionId);
               console.log(`📄 [Export] Accelerometer JSON size: ${accelJSON.length} bytes`);
@@ -294,10 +294,10 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
               const vitalsFilename = `Session_${sessionId.slice(-8)}_Vitals_${timestamp}.json`;
               const accelFilename = `Session_${sessionId.slice(-8)}_Accel_${timestamp}.json`;
               
-              // Use app's external storage directory (Android 10+ compatible)
+              // Uses the app's external storage directory (Android 10+ compatible)
               const exportDir = `${RNFS.ExternalDirectoryPath}/Exports`;
               
-              // Create export directory if it doesn't exist
+              // Creates an export directory if it doesn't exist
               const dirExists = await RNFS.exists(exportDir);
               if (!dirExists) {
                 console.log('📁 [Export] Creating export directory:', exportDir);
@@ -384,7 +384,7 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
 
     return date.toLocaleDateString();
   };
-
+// sesion ui and set up
   const renderSessionItem = ({ item }: { item: MonitoringSession }) => (
     <View style={styles.sessionCard}>
       <View style={styles.sessionHeader}>
@@ -455,7 +455,7 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
       </View>
     );
   }
-
+// Timestamps
   const formatTimestamp = (timestamp: Date): string => {
     return new Date(timestamp).toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -583,7 +583,7 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
                     </View>
                   ) : dataViewMode === 'vitals' ? (
                     selectedSessionData.map((reading, index) => {
-                      // Extract numeric values from objects if needed
+                      // Extracts numerical values from objects if needed
                       const heartRate = typeof reading.heartRate === 'object' 
                         ? reading.heartRate?.value 
                         : reading.heartRate;
@@ -673,7 +673,7 @@ const SessionsScreen: React.FC<SessionsScreenProps> = ({ navigation }) => {
     </View>
   );
 };
-
+// Generic UI to match App
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -965,3 +965,4 @@ const styles = StyleSheet.create({
 });
 
 export default SessionsScreen;
+
