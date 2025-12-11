@@ -4,7 +4,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 
 import { theme } from '../styles/theme';
 
-// Type definitions with strict typing
+// Type definitions with strict typing- for debugging repetive issues
 interface Props {
   children: ReactNode;
   fallback?: (error: Error, errorInfo: ErrorInfo) => ReactNode;
@@ -25,7 +25,7 @@ const isValidError = (error: unknown): error is Error => {
   return error instanceof Error && typeof error.message === 'string';
 };
 
-// Error severity classification
+// Error severity classification- based on need to use in app 
 type ErrorSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 const classifyError = (error: Error): ErrorSeverity => {
@@ -48,7 +48,7 @@ const classifyError = (error: Error): ErrorSeverity => {
   return 'low'; // Default for unknown errors
 };
 
-// Generate unique error ID for tracking
+// Generates a unique error ID for tracking
 const generateErrorId = (): string => {
   return `err_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 };
@@ -154,8 +154,8 @@ const ErrorDisplay = React.memo<{
 ErrorDisplay.displayName = 'ErrorDisplay';
 
 /**
- * Error Boundary component with comprehensive error handling
- * Implements user preferences for error boundaries and retry logic
+ * Error Boundary component with comprehensive error handling- continuation
+ * Implements preferences for error boundaries and retry logic for after debugged
  */
 class ErrorBoundary extends Component<Props, State> {
   private resetTimeoutId: NodeJS.Timeout | null = null;
@@ -171,7 +171,7 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
-    // Update state so the next render will show the fallback UI
+    // Updates state so the next render will show the fallback UI
     if (isValidError(error)) {
       return {
         hasError: true,
@@ -180,7 +180,7 @@ class ErrorBoundary extends Component<Props, State> {
       };
     }
     
-    // If error is not valid, create a generic error
+    // If the error is not valid, create a generic error for unknown complications
     return {
       hasError: true,
       error: new Error('An unknown error occurred'),
@@ -189,14 +189,14 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // Log error for debugging and analytics
+    // Logs the error for debugging and analytics
     console.error('ErrorBoundary caught an error:', error);
     console.error('Component stack:', errorInfo.componentStack);
 
-    // Update state with error info
+    // Updates state with error info
     this.setState({ errorInfo });
 
-    // Call custom error handler if provided
+    // Calls custom error handler if provided
     if (this.props.onError) {
       try {
         this.props.onError(error, errorInfo);
@@ -205,7 +205,7 @@ class ErrorBoundary extends Component<Props, State> {
       }
     }
 
-    // Auto-retry for certain error types after delay
+    // Auto-retrys for certain error types after delay
     const severity = classifyError(error);
     if (severity === 'low' || severity === 'medium') {
       this.scheduleAutoRetry();
@@ -216,7 +216,7 @@ class ErrorBoundary extends Component<Props, State> {
     const { resetKeys, resetOnPropsChange } = this.props;
     const { hasError } = this.state;
 
-    // Reset error boundary if reset keys change
+    // Resets error boundary if reset keys change
     if (hasError && resetKeys && prevProps.resetKeys) {
       const hasResetKeyChanged = resetKeys.some(
         (key, index) => key !== prevProps.resetKeys?.[index]
@@ -227,7 +227,7 @@ class ErrorBoundary extends Component<Props, State> {
       }
     }
 
-    // Reset on any prop change if enabled
+    // Resets on any prop change if enabled
     if (hasError && resetOnPropsChange && prevProps !== this.props) {
       this.resetError();
     }
@@ -240,12 +240,12 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   private scheduleAutoRetry = (): void => {
-    // Clear any existing timeout
+    // Clears any existing timeout
     if (this.resetTimeoutId) {
       clearTimeout(this.resetTimeoutId);
     }
 
-    // Schedule auto-retry after 5 seconds for recoverable errors
+    // Schedules auto-retry after 5 seconds for recoverable errors
     this.resetTimeoutId = setTimeout(() => {
       console.log('Auto-retrying after error...');
       this.resetError();
@@ -272,8 +272,8 @@ class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleDismiss = (): void => {
-    // For now, just reset the error
-    // In a real app, you might navigate to a safe screen
+    // For now, this just resets the error
+    // In the app it may still not work depending on severtiy 
     console.log('Error dismissed by user');
     this.resetError();
   };
@@ -283,17 +283,17 @@ class ErrorBoundary extends Component<Props, State> {
     const { children, fallback } = this.props;
 
     if (hasError && error) {
-      // Use custom fallback if provided
+      // Uses custom fallback when provided
       if (fallback && errorInfo) {
         try {
           return fallback(error, errorInfo);
         } catch (fallbackError) {
           console.error('Error in fallback component:', fallbackError);
-          // Fall through to default error display
+          // Falls through to default error display to avoid complete crashes
         }
       }
 
-      // Default error display
+      // Default error display- generic ui
       return (
         <ErrorDisplay
           error={error}
@@ -440,5 +440,6 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurface,
   },
 });
+
 
 export default ErrorBoundary;
