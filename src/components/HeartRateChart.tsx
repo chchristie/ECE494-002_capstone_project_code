@@ -1,4 +1,4 @@
-// src/components/HeartRateChart.tsx - Pure React Native implementation (no SVG)
+// src/components/HeartRateChart.tsx - Pure React Native implementation 
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { theme } from '../styles/theme';
@@ -13,13 +13,13 @@ export interface HeartRateChartProps {
   showGrid?: boolean;
 }
 
-// Simple bar chart using View elements
+// Simple bar chart using View elements for the line chart display
 const SimpleBarChart: React.FC<{
   data: { value: number }[];
   width: number;
   height: number;
 }> = ({ data, width, height }) => {
-  const chartHeight = height - 50; // Leave space for labels
+  const chartHeight = height - 50; // Leaves space for labels
   const barWidth = Math.max(3, Math.floor((width - 60) / data.length) - 2);
 
   const values = data.map(d => d.value);
@@ -83,7 +83,7 @@ export const HeartRateChart: React.FC<HeartRateChartProps> = ({
 }) => {
   const screenWidth = Dimensions.get('window').width - 32;
 
-  // Use data prop if available, otherwise fall back to readings
+  // Uses data prop if available, otherwise fall back to readings- this was for a simulated variables to have priority
   const chartData = useMemo(() => {
     const sourceData = data || readings || [];
     return sourceData.map((item) => ({
@@ -119,7 +119,7 @@ export const HeartRateChart: React.FC<HeartRateChartProps> = ({
       {/* Bar Chart */}
       <View style={styles.chartWrapper}>
         <SimpleBarChart
-          data={chartData.slice(-30)} // Show last 30 readings
+          data={chartData.slice(-30)} // Shows last 30 readings
           width={screenWidth}
           height={height}
         />
@@ -148,7 +148,7 @@ export const HeartRateChart: React.FC<HeartRateChartProps> = ({
   );
 };
 
-// Mini chart for smaller displays
+// A mini chart for smaller displays after previous errors on app no longer needed for current phone
 export const MiniHeartRateChart: React.FC<{ readings: any[] }> = ({ readings }) => {
   const miniData = useMemo(() =>
     readings.slice(-10).map((reading) => ({
@@ -193,7 +193,7 @@ export const MiniHeartRateChart: React.FC<{ readings: any[] }> = ({ readings }) 
     </View>
   );
 };
-
+// General UI
 const styles = StyleSheet.create({
   container: {
     backgroundColor: theme.colors.surface,
@@ -308,3 +308,4 @@ const styles = StyleSheet.create({
 });
 
 export default HeartRateChart;
+
