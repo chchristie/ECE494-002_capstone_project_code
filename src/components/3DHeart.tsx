@@ -36,7 +36,7 @@ export const Heart3D: React.FC<HeartProps> = ({
       return;
     }
 
-    // Calculate animation speed based on heart rate
+    // Calculates animation speed based on heart rate
     const beatsPerSecond = heartRate / 60;
     const durationPerBeat = 1000 / beatsPerSecond;
     const pulseDuration = durationPerBeat * 0.4;
@@ -70,7 +70,7 @@ export const Heart3D: React.FC<HeartProps> = ({
       ])
     );
 
-    // 3D rotation animation - slow and subtle
+    // 3D rotation animation - not working
     const rotationAnimation = Animated.loop(
       Animated.parallel([
         Animated.sequence([
@@ -182,7 +182,7 @@ export const Heart3D: React.FC<HeartProps> = ({
           },
         ]}
       >
-        {/* Shadow heart for depth */}
+        {/* Shadow heart-depth */}
         <View
           style={[
             styles.shadowHeart,
@@ -225,7 +225,7 @@ export const Heart3D: React.FC<HeartProps> = ({
   );
 };
 
-// Simplified 2D animated heart
+// Simplified 2D animated heart- current go to for heart rate screen
 export const AnimatedHeart: React.FC<HeartProps> = ({
   size = 60,
   color = theme.colors.primary,
